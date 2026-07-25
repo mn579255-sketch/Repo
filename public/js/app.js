@@ -297,10 +297,18 @@ function renderAttendanceTable(records) {
       <td>${r.check_out_time ? new Date(r.check_out_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '-'}</td>
       <td><span class="badge badge-${r.status}">${r.status === 'present' ? 'حاضر' : r.status === 'late' ? 'متأخر' : r.status === 'absent' ? 'غائب' : r.status}</span></td>
       <td style="font-size:0.75rem;max-width:180px;word-break:break-word">${r.check_in_address ? `🟢 ${r.check_in_address}` : ''}${r.check_out_address ? `<br>🔴 ${r.check_out_address}` : ''}${!r.check_in_address && !r.check_out_address ? '-' : ''}</td>
-      <td><button class="btn btn-outline btn-sm" onclick="showEditAttendanceModal(${i})">${Icons.edit}</button></td>
+      <td><button class="btn btn-outline btn-sm edit-att-btn" data-idx="${i}" style="white-space:nowrap">${Icons.edit} تعديل</button></td>
     </tr>`).join('')}
   </tbody></table></div>`;
 }
+
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.edit-att-btn');
+  if (btn) {
+    const idx = parseInt(btn.getAttribute('data-idx'));
+    if (!isNaN(idx)) showEditAttendanceModal(idx);
+  }
+});
 
 function showEditAttendanceModal(idx) {
   const record = window._attRecords[idx];
@@ -327,6 +335,9 @@ function showEditAttendanceModal(idx) {
   document.body.appendChild(overlay);
   document.getElementById('editAttForm').onsubmit = async (e) => {
     e.preventDefault();
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'جاري الحفظ...';
     try {
       const checkInTime = document.getElementById('editAttCheckIn').value;
       const checkOutTime = document.getElementById('editAttCheckOut').value;
@@ -340,7 +351,11 @@ function showEditAttendanceModal(idx) {
       showToast('تم تعديل السجل بنجاح', 'success');
       overlay.remove();
       showAdminView('attendance');
-    } catch (err) { showToast(err.message, 'error'); }
+    } catch (err) {
+      showToast('خطأ: ' + err.message, 'error');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'حفظ التعديلات';
+    }
   };
 }
 
