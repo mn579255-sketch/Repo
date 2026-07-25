@@ -156,7 +156,7 @@ router.post('/checkin', async (req, res) => {
 router.post('/checkout', async (req, res) => {
   const db = getDb();
   try {
-    const { latitude, longitude } = req.body;
+    const { latitude, longitude, reason } = req.body;
     const now = new Date();
     const today = now.toISOString().split('T')[0];
     const nowISO = now.toISOString();
@@ -166,25 +166,26 @@ router.post('/checkout', async (req, res) => {
     if (!existing || !existing.check_in_time) return res.status(400).json({ error: 'لم تسجل حضورك اليوم بعد' });
     if (existing.check_out_time) return res.status(400).json({ error: 'تم تسجيل انصرافك بالفعل اليوم', checkOutTime: existing.check_out_time });
 
-    await db.attendance.update(req.user.id, today, {
-      check_out_time: nowISO, check_out_lat: latitude || null, check_out_lng: longitude || null,
-      overtime_minutes: currentTime > workEnd ? calculateOvertimeMinutes(currentTime, workEnd) : 0
-    });
-
     const settings = await db.work_settings.get();
     const workEnd = settings.work_end_hour || '17:00';
     const earlyLeaveMinutes = currentTime < workEnd ? calculateEarlyLeaveMinutes(currentTime, workEnd) : 0;
     const overtimeMinutes = currentTime > workEnd ? calculateOvertimeMinutes(currentTime, workEnd) : 0;
+
+    await db.attendance.update(req.user.id, today, {
+      check_out_time: nowISO, check_out_lat: latitude || null, check_out_lng: longitude || null,
+      overtime_minutes: overtimeMinutes,
+      notes: earlyLeaveMinutes > 0 && reason ? reason : existing.notes
+    });
 
     const totalWorkMinutes = calculateWorkMinutes(settings.work_start_hour, settings.work_end_hour);
     const lateMinutes = existing.status === 'late' ? calculateLateMinutes(settings.work_start_hour, new Date(existing.check_in_time).toTimeString().slice(0, 5)) : 0;
     const evalScore = calculateEvaluation(lateMinutes, earlyLeaveMinutes, totalWorkMinutes);
     await db.daily_evaluations.upsert(req.user.id, today, {
       evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: earlyLeaveMinutes,
-      overtime_hours: Math.round(overtimeMinutes / 60 * 100) / 100, notes: null
+      overtime_hours: Math.round(overtimeMinutes / 60 * 100) / 100, notes: earlyLeaveMinutes > 0 && reason ? reason : null
     });
 
-    res.json({ message: 'تم تسجيل انصرافك بنجاح', time: nowISO, earlyLeaveMinutes, overtimeMinutes });
+    res.json({ message: 'تم تسجيل انصرافك بنجاح', time: nowISO, earlyLeaveMinutes, overtimeMinutes, reason: earlyLeaveMinutes > 0 ? reason : null });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تسجيل الانصراف: ' + err.message });
   }
@@ -250,22 +251,33 @@ router.get('/my-salary', async (req, res) => {
     const year = now.getFullYear();
     const attendance = await db.attendance.getByUserMonth(req.user.id, month, year);
 
+    const allRequests = await db.requests.getByUser(req.user.id);
+    const approvedRequests = allRequests.filter(r => r.status === 'approved');
+    function hasApprovedPermission(date) {
+      return approvedRequests.some(r => date >= r.date_from && date <= (r.date_to || r.date_from));
+    }
+
     let totalLateMinutes = 0;
     let totalEarlyLeave = 0;
     let totalOvertimeHours = 0;
+    let lateDaysCount = 0;
+    let earlyDaysCount = 0;
+    let exemptDays = 0;
     for (const att of attendance) {
+      if (hasApprovedPermission(att.date)) { exemptDays++; continue; }
       if (att.check_in_time && att.status === 'late') {
         const ci = new Date(att.check_in_time);
         const ciMin = ci.getHours() * 60 + ci.getMinutes();
         const startMin = 9 * 60;
         totalLateMinutes += Math.max(0, ciMin - startMin);
+        lateDaysCount++;
       }
       if (att.check_out_time) {
         const co = new Date(att.check_out_time);
         const coMin = co.getHours() * 60 + co.getMinutes();
         const endMin = 17 * 60;
         const early = Math.max(0, endMin - coMin);
-        if (early > 0) totalEarlyLeave += early;
+        if (early > 0) { totalEarlyLeave += early; earlyDaysCount++; }
         const overtime = Math.max(0, coMin - endMin);
         if (overtime > 0) totalOvertimeHours += overtime / 60;
       }
@@ -287,6 +299,7 @@ router.get('/my-salary', async (req, res) => {
       deduction_amount: Math.round(deductionAmount * 100) / 100,
       overtime_hours: Math.round(totalOvertimeHours * 100) / 100,
       overtime_pay: Math.round(overtimePay * 100) / 100,
+      exempt_days: exemptDays,
       net_salary: Math.round(netSalary * 100) / 100
     });
   } catch (err) {
@@ -344,6 +357,30 @@ router.get('/my-department', async (req, res) => {
     res.json(dept);
   } catch (err) {
     res.status(500).json({ error: 'خطأ في جلب بيانات القسم' });
+  }
+});
+
+// Check if employee has approved permission/leave for a date
+router.get('/approved-permission', async (req, res) => {
+  const db = getDb();
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const requests = await db.requests.getByUser(req.user.id);
+    const approved = requests.filter(r => r.status === 'approved' && today >= r.date_from && today <= (r.date_to || r.date_from));
+    res.json({ hasApproved: approved.length > 0, requests: approved });
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في التحقق من الطلبات' });
+  }
+});
+
+// Get work settings (for employee to know work end time)
+router.get('/work-settings', async (req, res) => {
+  const db = getDb();
+  try {
+    const settings = await db.work_settings.get();
+    res.json(settings);
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في جلب الإعدادات' });
   }
 });
 

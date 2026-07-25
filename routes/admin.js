@@ -200,7 +200,13 @@ router.get('/salary-report', async (req, res) => {
       let earlyDays = 0;
       let presentDays = 0;
 
+      const allRequests = await db.requests.getAll();
+      function hasApprovedPermission(userId, date) {
+        return allRequests.some(r => r.user_id === userId && r.status === 'approved' && date >= r.date_from && date <= (r.date_to || r.date_from));
+      }
+
       for (const att of attendance) {
+        if (hasApprovedPermission(emp.id, att.date)) continue;
         if (att.status === 'late') {
           lateDays++;
           if (att.check_in_time && att.check_out_time) {

@@ -759,8 +759,73 @@ async function checkOutWithGPS() {
   showToast('جاري تحديد موقعك...', 'info');
   if (!navigator.geolocation) { showToast('متصفحك لا يدعم تحديد الموقع', 'error'); return; }
   navigator.geolocation.getCurrentPosition(async (pos) => {
-    try { const result = await api('/employee/checkout', { method: 'POST', body: JSON.stringify({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }) }); showToast(result.message, 'success'); loadEmpToday(document.getElementById('empContent')); } catch (err) { showToast(err.message, 'error'); }
+    try {
+      const status = await api('/employee/today-status');
+      const settings = await api('/employee/location').catch(() => null);
+      const now = new Date();
+      const currentTime = now.toTimeString().slice(0, 5);
+      const workSettings = await api('/employee/work-settings').catch(() => ({ work_end_hour: '17:00' }));
+      const workEnd = workSettings.work_end_hour || '17:00';
+
+      const isEarly = currentTime < workEnd;
+
+      if (isEarly) {
+        showEarlyCheckoutModal(pos.coords.latitude, pos.coords.longitude);
+      } else {
+        const result = await api('/employee/checkout', { method: 'POST', body: JSON.stringify({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }) });
+        showToast(result.message, 'success');
+        loadEmpToday(document.getElementById('empContent'));
+      }
+    } catch (err) { showToast(err.message, 'error'); }
   }, (err) => { showToast('لم يتم السماح بالوصول للموقع: ' + err.message, 'error'); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+}
+
+function showEarlyCheckoutModal(lat, lng) {
+  const reasons = [
+    'موقف طارئ شخصي',
+    '就医 - موعد طبي',
+    'ظروف عائلية',
+    'التزام رسمي',
+    'إجازة من المدير',
+    'مرض مفاجئ',
+    'أخرى'
+  ];
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `<div class="modal">
+    <h3 style="color:var(--warning)">${Icons.alert} انصراف مبكر</h3>
+    <p style="color:var(--gray-500);margin-bottom:16px">أنت تسجل انصرافك قبل موعد الدوام. يرجى اختيار سبب الانصراف المبكر:</p>
+    <form id="earlyCheckoutForm">
+      <div class="form-group"><label>سبب الانصراف المبكر</label>
+        <select id="earlyReason" required>
+          <option value="">اختر السبب</option>
+          ${reasons.map(r => `<option value="${r}">${r}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group" id="customReasonGroup" style="display:none"><label>سبب آخر</label><input type="text" id="customReason" placeholder="اكتب السبب"></div>
+      <div style="display:flex;gap:8px">
+        <button type="submit" class="btn btn-warning" style="background:var(--warning);color:#fff">تأكيد الانصراف</button>
+        <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">إلغاء</button>
+      </div>
+    </form></div>`;
+  document.body.appendChild(overlay);
+
+  document.getElementById('earlyReason').onchange = function() {
+    document.getElementById('customReasonGroup').style.display = this.value === 'أخرى' ? 'block' : 'none';
+  };
+
+  document.getElementById('earlyCheckoutForm').onsubmit = async (e) => {
+    e.preventDefault();
+    let reason = document.getElementById('earlyReason').value;
+    if (reason === 'أخرى') reason = document.getElementById('customReason').value || 'أخرى';
+    try {
+      const result = await api('/employee/checkout', { method: 'POST', body: JSON.stringify({ latitude: lat, longitude: lng, reason }) });
+      showToast(result.message + (reason ? ' - السبب: ' + reason : ''), 'success');
+      overlay.remove();
+      loadEmpToday(document.getElementById('empContent'));
+    } catch (err) { showToast(err.message, 'error'); }
+  };
 }
 
 async function loadEmpAttendance(el) {
@@ -838,6 +903,7 @@ async function loadEmpSalary(el) {
             <tr><td style="font-weight:700">الراتب الأساسي</td><td style="text-align:left;font-weight:700">${fmt(data.salary)} ج.م</td></tr>
             <tr><td>دقائق التأخير (× 2)</td><td style="text-align:left;color:var(--danger)">${data.total_late_minutes} دقيقة</td></tr>
             <tr><td>دقائق الانصراف المبكر (× 2)</td><td style="text-align:left;color:var(--danger)">${data.total_early_leave_minutes} دقيقة</td></tr>
+            ${data.exempt_days > 0 ? `<tr style="background:#dcfce7"><td style="color:var(--success);font-weight:600">${Icons.check} أيام معفاة (إذن/إجازة)</td><td style="text-align:left;color:var(--success)">${data.exempt_days} يوم - لا خصم</td></tr>` : ''}
             <tr><td>إجمالي دقائق الخصم</td><td style="text-align:left;color:var(--danger)">${data.total_deduction_minutes} دقيقة</td></tr>
             <tr style="border-top:2px solid var(--gray-200)"><td style="font-weight:700;color:var(--danger)">مبلغ الخصم</td><td style="text-align:left;font-weight:700;color:var(--danger)">-${fmt(data.deduction_amount)} ج.م</td></tr>
             ${data.overtime_hours > 0 ? `<tr style="background:#dcfce7"><td style="font-weight:700;color:var(--success)">الإضافي (${data.overtime_hours} ساعة × 1.5)</td><td style="text-align:left;font-weight:700;color:var(--success)">+${fmt(data.overtime_pay)} ج.م</td></tr>` : ''}
@@ -846,7 +912,7 @@ async function loadEmpSalary(el) {
         </table></div>
       </div>
       <div class="card" style="padding:16px;color:var(--gray-500);font-size:0.8125rem">
-        <p><strong>ملاحظة:</strong> الراتب يُقسم على 30 يوم × 8 ساعات = 240 ساعة شهرياً. كل دقيقة تأخير أو انصراف مبكر تُخصم مرتين من الراتب. كل ساعة إضافي تُحسب بمعامل 1.5.</p>
+        <p><strong>ملاحظة:</strong> الراتب يُقسم على 30 يوم × 8 ساعات = 240 ساعة شهرياً. كل دقيقة تأخير أو انصراف مبكر تُخصم مرتين من الراتب (إلا إذا كان لديك إذن أو إجازة معتمدة). كل ساعة إضافي تُحسب بمعامل 1.5.</p>
       </div>`;
   } catch (err) { el.innerHTML = `<div class="empty-state"><p>خطأ: ${err.message}</p></div>`; }
 }
