@@ -259,7 +259,7 @@ async function loadAdminAttendance(el) {
 
 function renderAttendanceTable(records) {
   if (!records.length) return '<div class="empty-state"><p>لا توجد سجلات في هذا الفترة</p></div>';
-  return `<div class="table-container"><table><thead><tr><th>التاريخ</th><th>الموظف</th><th>القسم</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>الملاحظات</th></tr></thead><tbody>
+  return `<div class="table-container"><table><thead><tr><th>التاريخ</th><th>الموظف</th><th>القسم</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>الملاحظات</th><th>إجراءات</th></tr></thead><tbody>
     ${records.map(r => `<tr>
       <td>${r.date}</td>
       <td><strong>${r.employee_name}</strong><br><span style="color:var(--gray-400);font-size:0.75rem">${r.employee_phone || ''}</span></td>
@@ -268,8 +268,47 @@ function renderAttendanceTable(records) {
       <td>${r.check_out_time ? new Date(r.check_out_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '-'}</td>
       <td><span class="badge badge-${r.status}">${r.status === 'present' ? 'حاضر' : r.status === 'late' ? 'متأخر' : r.status === 'absent' ? 'غائب' : r.status}</span></td>
       <td>${r.notes || '-'}</td>
+      <td><button class="btn btn-outline btn-sm" onclick='showEditAttendanceModal(${JSON.stringify(r).replace(/'/g,"\\'")})'>${Icons.edit}</button></td>
     </tr>`).join('')}
   </tbody></table></div>`;
+}
+
+function showEditAttendanceModal(record) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  const checkInVal = record.check_in_time ? new Date(record.check_in_time).toTimeString().slice(0, 5) : '';
+  const checkOutVal = record.check_out_time ? new Date(record.check_out_time).toTimeString().slice(0, 5) : '';
+  overlay.innerHTML = `<div class="modal">
+    <h3>تعديل سجل الحضور - ${record.employee_name || ''}</h3>
+    <p style="color:var(--gray-500);margin-bottom:12px">التاريخ: ${record.date}</p>
+    <form id="editAttForm">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="form-group"><label>وقت الحضور</label><input type="time" id="editAttCheckIn" value="${checkInVal}"></div>
+        <div class="form-group"><label>وقت الانصراف</label><input type="time" id="editAttCheckOut" value="${checkOutVal}"></div>
+      </div>
+      <div class="form-group"><label>الحالة</label><select id="editAttStatus"><option value="present" ${record.status==='present'?'selected':''}>حاضر</option><option value="late" ${record.status==='late'?'selected':''}>متأخر</option><option value="absent" ${record.status==='absent'?'selected':''}>غائب</option></select></div>
+      <div class="form-group"><label>ملاحظات</label><input type="text" id="editAttNotes" value="${record.notes || ''}"></div>
+      <div style="display:flex;gap:8px"><button type="submit" class="btn btn-primary">حفظ التعديلات</button><button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">إلغاء</button></div>
+    </form></div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('editAttForm').onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const checkInTime = document.getElementById('editAttCheckIn').value;
+      const checkOutTime = document.getElementById('editAttCheckOut').value;
+      const status = document.getElementById('editAttStatus').value;
+      const notes = document.getElementById('editAttNotes').value;
+      await api('/admin/attendance/edit', { method: 'PUT', body: JSON.stringify({
+        user_id: record.user_id, date: record.date,
+        check_in_time: checkInTime || null, check_out_time: checkOutTime || null,
+        status, notes: notes || null
+      })});
+      showToast('تم تعديل السجل بنجاح', 'success');
+      overlay.remove();
+      showAdminView('attendance');
+    } catch (err) { showToast(err.message, 'error'); }
+  };
 }
 
 async function filterAttendanceAdvanced() {
@@ -428,15 +467,15 @@ async function loadAdminDepartments(el) {
             <div style="display:flex;justify-content:space-between;align-items:start">
               <div><h3 style="color:var(--primary)">${d.name}</h3>${d.description ? `<p style="color:var(--gray-500);font-size:0.875rem">${d.description}</p>` : ''}</div>
               <div style="display:flex;gap:4px">
-                <button class="btn btn-outline btn-sm" onclick="showEditDepartmentModal(${d.id},'${d.name.replace(/'/g,"\\'")}','${(d.description||'').replace(/'/g,"\\'")}',${d.head_id||'null'})">${Icons.edit}</button>
+                <button class="btn btn-outline btn-sm" onclick="showEditDepartmentModal(${d.id},'${d.name.replace(/'/g,"\\'")}','${(d.description||'').replace(/'/g,"\\'")}',${d.head_id||'null'},'${d.work_start_hour||'09:00'}','${d.work_end_hour||'17:00'}',${d.work_days_per_week||5})">${Icons.edit}</button>
                 <button class="btn btn-danger btn-sm" onclick="deleteDepartment(${d.id},'${d.name.replace(/'/g,"\\'")}')">${Icons.trash}</button>
               </div>
             </div>
             <div style="margin-top:8px"><span style="color:var(--primary);font-size:0.875rem;font-weight:600">${Icons.employees} مدير القسم: ${headName}</span></div>
+            <div style="margin-top:4px;font-size:0.8125rem;color:var(--gray-500)">${Icons.clock} ${d.work_start_hour || '09:00'} - ${d.work_end_hour || '17:00'} | ${d.work_days_per_week || 5} أيام/أسبوع</div>
             <div style="margin-top:16px;display:flex;gap:16px;flex-wrap:wrap">
               <div class="stat-card" style="flex:1;min-width:100px;padding:12px"><div class="stat-info"><h4>الموظفين</h4><div class="stat-value" style="font-size:1.25rem">${deptEmps.length}</div></div></div>
               <div class="stat-card" style="flex:1;min-width:100px;padding:12px"><div class="stat-info"><h4>إجمالي الرواتب</h4><div class="stat-value" style="font-size:1rem">${fmt(deptSalary)} ج.م</div></div></div>
-              <div class="stat-card" style="flex:1;min-width:100px;padding:12px"><div class="stat-info"><h4>متوسط التقييم</h4><div class="stat-value" style="font-size:1rem">${deptEmps.length ? (deptEmps.reduce((a,s) => a + s.avg_evaluation, 0) / deptEmps.length).toFixed(1) : '-'}</div></div></div>
             </div>
           </div>`;
         }).join('')}
@@ -452,13 +491,24 @@ function showAddDepartmentModal() {
     <form id="addDeptForm">
       <div class="form-group"><label>اسم القسم</label><input type="text" id="deptName" placeholder="مثال: إدارة مالية" required></div>
       <div class="form-group"><label>الوصف (اختياري)</label><input type="text" id="deptDesc" placeholder="وصف القسم"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="form-group"><label>بداية الدوام</label><input type="time" id="deptWorkStart" value="09:00" required></div>
+        <div class="form-group"><label>نهاية الدوام</label><input type="time" id="deptWorkEnd" value="17:00" required></div>
+      </div>
+      <div class="form-group"><label>أيام العمل أسبوعياً</label><select id="deptWorkDays"><option value="5">5 أيام (أحد - الخميس)</option><option value="6">6 أيام (أحد - الجمعة)</option></select></div>
       <div style="display:flex;gap:8px"><button type="submit" class="btn btn-primary">إضافة</button><button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">إلغاء</button></div>
     </form></div>`;
   document.body.appendChild(overlay);
   document.getElementById('addDeptForm').onsubmit = async (e) => {
     e.preventDefault();
     try {
-      await api('/admin/departments', { method: 'POST', body: JSON.stringify({ name: document.getElementById('deptName').value, description: document.getElementById('deptDesc').value }) });
+      await api('/admin/departments', { method: 'POST', body: JSON.stringify({
+        name: document.getElementById('deptName').value,
+        description: document.getElementById('deptDesc').value,
+        work_start_hour: document.getElementById('deptWorkStart').value,
+        work_end_hour: document.getElementById('deptWorkEnd').value,
+        work_days_per_week: parseInt(document.getElementById('deptWorkDays').value)
+      })});
       showToast('تم إضافة القسم بنجاح', 'success');
       overlay.remove();
       showAdminView('departments');
@@ -466,7 +516,7 @@ function showAddDepartmentModal() {
   };
 }
 
-async function showEditDepartmentModal(id, name, desc, headId) {
+async function showEditDepartmentModal(id, name, desc, headId, workStart, workEnd, workDays) {
   const employees = await api('/admin/employees');
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -476,15 +526,26 @@ async function showEditDepartmentModal(id, name, desc, headId) {
       <div class="form-group"><label>اسم القسم</label><input type="text" id="deptName" value="${name}" required></div>
       <div class="form-group"><label>الوصف</label><input type="text" id="deptDesc" value="${desc}"></div>
       <div class="form-group"><label>مدير القسم</label><select id="deptHead"><option value="">بدون مدير</option>${employees.map(e => `<option value="${e.id}" ${e.id == headId ? 'selected' : ''}>${e.name}</option>`).join('')}</select></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="form-group"><label>بداية الدوام</label><input type="time" id="deptWorkStart" value="${workStart || '09:00'}" required></div>
+        <div class="form-group"><label>نهاية الدوام</label><input type="time" id="deptWorkEnd" value="${workEnd || '17:00'}" required></div>
+      </div>
+      <div class="form-group"><label>أيام العمل أسبوعياً</label><select id="deptWorkDays"><option value="5" ${workDays == 5 ? 'selected' : ''}>5 أيام (أحد - الخميس)</option><option value="6" ${workDays == 6 ? 'selected' : ''}>6 أيام (أحد - الجمعة)</option></select></div>
       <div style="display:flex;gap:8px"><button type="submit" class="btn btn-primary">حفظ</button><button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">إلغاء</button></div>
     </form></div>`;
   document.body.appendChild(overlay);
   document.getElementById('editDeptForm').onsubmit = async (e) => {
     e.preventDefault();
     try {
-      await api(`/admin/departments/${id}`, { method: 'PUT', body: JSON.stringify({ name: document.getElementById('deptName').value, description: document.getElementById('deptDesc').value }) });
-      const headId = document.getElementById('deptHead').value;
-      await api(`/admin/departments/${id}/head`, { method: 'PUT', body: JSON.stringify({ head_id: headId ? parseInt(headId) : null }) });
+      await api(`/admin/departments/${id}`, { method: 'PUT', body: JSON.stringify({
+        name: document.getElementById('deptName').value,
+        description: document.getElementById('deptDesc').value,
+        work_start_hour: document.getElementById('deptWorkStart').value,
+        work_end_hour: document.getElementById('deptWorkEnd').value,
+        work_days_per_week: parseInt(document.getElementById('deptWorkDays').value)
+      })});
+      const headVal = document.getElementById('deptHead').value;
+      await api(`/admin/departments/${id}/head`, { method: 'PUT', body: JSON.stringify({ head_id: headVal ? parseInt(headVal) : null }) });
       showToast('تم تحديث القسم بنجاح', 'success');
       overlay.remove();
       showAdminView('departments');
@@ -538,15 +599,17 @@ async function loadAdminSalaryReport(el) {
 
 function renderSalaryReportTable(report) {
   if (!report.length) return '<div class="empty-state"><p>لا يوجد موظفين</p></div>';
-  return `<div class="table-container"><table><thead><tr><th>الموظف</th><th>القسم</th><th>الراتب</th><th>أيام الحضور</th><th>أيام التأخير</th><th>دقائق التأخير</th><th>دقائق الانصراف المبكر</th><th>الإضافي</th><th>الخصم</th><th>الراتب الصافي</th></tr></thead><tbody>
+  return `<div class="table-container"><table><thead><tr><th>الموظف</th><th>القسم</th><th>الراتب</th><th>أيام العمل</th><th>أيام الحضور</th><th>أيام التأخير</th><th>دقائق التأخير</th><th>دقائق الانصراف المبكر</th><th>أيام معفاة</th><th>الإضافي</th><th>الخصم</th><th>الراتب الصافي</th></tr></thead><tbody>
     ${report.map(r => `<tr>
       <td><strong>${r.name}</strong></td>
       <td><span class="badge badge-present" style="background:#e0e7ff;color:#3730a3">${r.department_name}</span></td>
       <td>${fmt(r.salary)}</td>
+      <td>${r.work_days_per_week || 5}</td>
       <td><span class="badge badge-present">${r.present_days}</span></td>
       <td><span class="badge badge-late">${r.late_days}</span></td>
       <td>${r.total_late_minutes} دقيقة</td>
       <td>${r.total_early_leave_minutes} دقيقة</td>
+      <td>${r.exempt_days > 0 ? `<span class="badge badge-pending">${r.exempt_days} يوم</span>` : '-'}</td>
       <td style="color:var(--success);font-weight:600">${r.overtime_hours > 0 ? r.overtime_hours + 'ساعة (+' + fmt(r.overtime_pay) + ')' : '-'}</td>
       <td style="color:var(--danger);font-weight:600">-${fmt(r.deduction_amount)} ج.م</td>
       <td style="color:var(--success);font-weight:700">${fmt(r.net_salary)} ج.م</td>
@@ -949,7 +1012,7 @@ async function loadEmpSalary(el) {
         </table></div>
       </div>
       <div class="card" style="padding:16px;color:var(--gray-500);font-size:0.8125rem">
-        <p><strong>ملاحظة:</strong> الراتب يُقسم على 30 يوم × 8 ساعات = 240 ساعة شهرياً. كل دقيقة تأخير أو انصراف مبكر تُخصم مرتين من الراتب (إلا إذا كان لديك إذن أو إجازة معتمدة). كل ساعة إضافي تُحسب بمعامل 1.5.</p>
+        <p><strong>ملاحظة:</strong> الراتب يُقسم حسب أيام عمل القسم (${data.work_days_per_week || 5} أيام × ${data.monthly_hours ? (data.monthly_hours / (data.work_days_per_week || 5)).toFixed(0) : 8} ساعات = ${data.monthly_hours || 240} ساعة شهرياً). كل دقيقة تأخير أو انصراف مبكر تُخصم مرتين من الراتب (إلا إذا كان لديك إذن أو إجازة معتمدة). كل ساعة إضافي تُحسب بمعامل 1.5.</p>
       </div>`;
   } catch (err) { el.innerHTML = `<div class="empty-state"><p>خطأ: ${err.message}</p></div>`; }
 }

@@ -182,13 +182,8 @@ router.get('/salary-report', async (req, res) => {
 
     const employees = await db.users.getEmployees();
     const departments = await db.departments.getAll();
-    const settings = await db.work_settings.get();
-    const workStartParts = (settings.work_start_hour || '09:00').split(':');
-    const workEndParts = (settings.work_end_hour || '17:00').split(':');
-    const workStartMin = parseInt(workStartParts[0]) * 60 + parseInt(workStartParts[1]);
-    const workEndMin = parseInt(workEndParts[0]) * 60 + parseInt(workEndParts[1]);
     const deptMap = {};
-    departments.forEach(d => { deptMap[d.id] = d.name; });
+    departments.forEach(d => { deptMap[d.id] = d; });
 
     const allRequests = await db.requests.getAll();
     function hasApprovedPermission(userId, date) {
@@ -199,7 +194,13 @@ router.get('/salary-report', async (req, res) => {
     for (const emp of employees) {
       const attendance = await db.attendance.getByUserMonth(emp.id, m, y);
       const salary = emp.salary || 0;
-      const hourlyRate = salary / (30 * 8);
+      const dept = deptMap[emp.department_id] || {};
+      const workStart = dept.work_start_hour || '09:00';
+      const workEnd = dept.work_end_hour || '17:00';
+      const workDaysPerWeek = dept.work_days_per_week || 5;
+      const workMinutesPerDay = (parseInt(workEnd.split(':')[0]) * 60 + parseInt(workEnd.split(':')[1])) - (parseInt(workStart.split(':')[0]) * 60 + parseInt(workStart.split(':')[1]));
+      const monthlyMinutes = workDaysPerWeek * 4 * workMinutesPerDay;
+      const hourlyRate = monthlyMinutes > 0 ? salary / (monthlyMinutes / 60) : 0;
       const perMinuteRate = hourlyRate / 60;
 
       let totalLateMinutes = 0;
@@ -208,24 +209,28 @@ router.get('/salary-report', async (req, res) => {
       let lateDays = 0;
       let earlyDays = 0;
       let presentDays = 0;
+      let exemptDays = 0;
+
+      const wsMin = parseInt(workStart.split(':')[0]) * 60 + parseInt(workStart.split(':')[1]);
+      const weMin = parseInt(workEnd.split(':')[0]) * 60 + parseInt(workEnd.split(':')[1]);
 
       for (const att of attendance) {
-        if (hasApprovedPermission(emp.id, att.date)) continue;
+        if (hasApprovedPermission(emp.id, att.date)) { exemptDays++; continue; }
         if (att.status === 'late') {
           lateDays++;
           if (att.check_in_time) {
             const ci = new Date(att.check_in_time);
             const ciMin = ci.getHours() * 60 + ci.getMinutes();
-            totalLateMinutes += Math.max(0, ciMin - workStartMin);
+            totalLateMinutes += Math.max(0, ciMin - wsMin);
           }
         }
         if (att.status === 'present') presentDays++;
         if (att.check_out_time) {
           const co = new Date(att.check_out_time);
           const coMin = co.getHours() * 60 + co.getMinutes();
-          const earlyMin = Math.max(0, workEndMin - coMin);
+          const earlyMin = Math.max(0, weMin - coMin);
           if (earlyMin > 0) { totalEarlyLeave += earlyMin; earlyDays++; }
-          const overtimeMin = Math.max(0, coMin - workEndMin);
+          const overtimeMin = Math.max(0, coMin - weMin);
           if (overtimeMin > 0) totalOvertimeHours += overtimeMin / 60;
         }
       }
@@ -238,12 +243,15 @@ router.get('/salary-report', async (req, res) => {
       report.push({
         id: emp.id,
         name: emp.name,
-        department_name: deptMap[emp.department_id] || 'غير محدد',
+        department_name: dept.name || 'غير محدد',
+        department_id: emp.department_id,
         salary,
         hourly_rate: Math.round(hourlyRate * 100) / 100,
+        work_days_per_week: workDaysPerWeek,
         present_days: presentDays,
         late_days: lateDays,
         early_days: earlyDays,
+        exempt_days: exemptDays,
         total_late_minutes: totalLateMinutes,
         total_early_leave_minutes: totalEarlyLeave,
         total_deduction_minutes: totalDeductionMinutes,
@@ -381,18 +389,21 @@ router.put('/requests/:id', async (req, res) => {
           notes: request.reason || 'انصراف مبكر معتمد'
         });
 
-        const settings = await db.work_settings.get();
-        const workEnd = settings.work_end_hour || '17:00';
+        const reqUser = await db.users.get(request.user_id);
+        const deptSettings = await db.departments.getWorkSettings(reqUser ? reqUser.department_id : null);
+        const workEnd = deptSettings.work_end_hour;
+        const workStart = deptSettings.work_start_hour;
         const coTime = new Date(checkoutTime);
         const coMin = coTime.getHours() * 60 + coTime.getMinutes();
         const endMin = parseInt(workEnd.split(':')[0]) * 60 + parseInt(workEnd.split(':')[1]);
+        const startMin = parseInt(workStart.split(':')[0]) * 60 + parseInt(workStart.split(':')[1]);
         const earlyMinutes = Math.max(0, endMin - coMin);
 
         const existing = await db.attendance.get(request.user_id, today);
         const lateMinutes = existing && existing.status === 'late' && existing.check_in_time
-          ? Math.max(0, (new Date(existing.check_in_time).getHours() * 60 + new Date(existing.check_in_time).getMinutes()) - (parseInt(settings.work_start_hour.split(':')[0]) * 60 + parseInt(settings.work_start_hour.split(':')[1])))
+          ? Math.max(0, (new Date(existing.check_in_time).getHours() * 60 + new Date(existing.check_in_time).getMinutes()) - startMin)
           : 0;
-        const totalWorkMinutes = parseInt(settings.work_end_hour.split(':')[0]) * 60 + parseInt(settings.work_end_hour.split(':')[1]) - (parseInt(settings.work_start_hour.split(':')[0]) * 60 + parseInt(settings.work_start_hour.split(':')[1]));
+        const totalWorkMinutes = endMin - startMin;
         const evalScore = calculateEarlyLeaveEvaluation(lateMinutes, earlyMinutes, totalWorkMinutes);
         await db.daily_evaluations.upsert(request.user_id, today, {
           evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: earlyMinutes,
@@ -459,6 +470,30 @@ function calculateEarlyLeaveEvaluation(lateMinutes, earlyLeaveMinutes, totalWork
   if (earlyLeaveMinutes > 0) score -= Math.min(earlyLeaveMinutes / totalWorkMinutes, 1) * 30;
   return Math.max(0, Math.round(score * 100) / 100);
 }
+
+// Admin edit attendance record
+router.put('/attendance/edit', async (req, res) => {
+  const db = getDb();
+  try {
+    const { user_id, date, check_in_time, check_out_time, status, notes } = req.body;
+    if (!user_id || !date) return res.status(400).json({ error: 'معرف الموظف والتاريخ مطلوبين' });
+    const existing = await db.attendance.get(parseInt(user_id), date);
+    if (!existing) return res.status(404).json({ error: 'لا يوجد سجل حضور لهذا التاريخ' });
+
+    const updates = {};
+    if (check_in_time !== undefined) updates.check_in_time = check_in_time || null;
+    if (check_out_time !== undefined) updates.check_out_time = check_out_time || null;
+    if (status !== undefined) updates.status = status;
+    if (notes !== undefined) updates.notes = notes || null;
+
+    if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'لم يتم إدخال أي بيانات للتعديل' });
+
+    await db.attendance.update(parseInt(user_id), date, updates);
+    res.json({ message: 'تم تعديل سجل الحضور بنجاح' });
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في تعديل السجل: ' + err.message });
+  }
+});
 
 // Employee status today (present, on leave, permission, mission)
 router.get('/employee-status', async (req, res) => {

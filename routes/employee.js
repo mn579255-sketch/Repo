@@ -119,8 +119,9 @@ router.post('/checkin', async (req, res) => {
     const nowISO = now.toISOString();
     const currentTime = now.toTimeString().slice(0, 5);
 
-    const settings = await db.work_settings.get();
-    const workStart = settings.work_start_hour || '09:00';
+    const user = await db.users.get(req.user.id);
+    const deptSettings = await db.departments.getWorkSettings(user ? user.department_id : null);
+    const workStart = deptSettings.work_start_hour;
 
     let status = 'present';
     if (currentTime > workStart) status = 'late';
@@ -140,7 +141,7 @@ router.post('/checkin', async (req, res) => {
 
     const lateMinutes = status === 'late' ? calculateLateMinutes(workStart, currentTime) : 0;
     if (lateMinutes > 0) {
-      const totalWorkMinutes = calculateWorkMinutes(settings.work_start_hour, settings.work_end_hour);
+      const totalWorkMinutes = calculateWorkMinutes(deptSettings.work_start_hour, deptSettings.work_end_hour);
       const evalScore = calculateEvaluation(lateMinutes, 0, totalWorkMinutes);
       await db.daily_evaluations.upsert(req.user.id, today, {
         evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: 0, notes: null
@@ -166,8 +167,9 @@ router.post('/checkout', async (req, res) => {
     if (!existing || !existing.check_in_time) return res.status(400).json({ error: 'لم تسجل حضورك اليوم بعد' });
     if (existing.check_out_time) return res.status(400).json({ error: 'تم تسجيل انصرافك بالفعل اليوم', checkOutTime: existing.check_out_time });
 
-    const settings = await db.work_settings.get();
-    const workEnd = settings.work_end_hour || '17:00';
+    const user = await db.users.get(req.user.id);
+    const deptSettings = await db.departments.getWorkSettings(user ? user.department_id : null);
+    const workEnd = deptSettings.work_end_hour;
     const isEarly = currentTime < workEnd;
 
     if (isEarly) {
@@ -195,8 +197,8 @@ router.post('/checkout', async (req, res) => {
       overtime_minutes: overtimeMinutes
     });
 
-    const lateMinutes = existing.status === 'late' ? calculateLateMinutes(settings.work_start_hour, new Date(existing.check_in_time).toTimeString().slice(0, 5)) : 0;
-    const totalWorkMinutes = calculateWorkMinutes(settings.work_start_hour, settings.work_end_hour);
+    const lateMinutes = existing.status === 'late' ? calculateLateMinutes(deptSettings.work_start_hour, new Date(existing.check_in_time).toTimeString().slice(0, 5)) : 0;
+    const totalWorkMinutes = calculateWorkMinutes(deptSettings.work_start_hour, deptSettings.work_end_hour);
     const evalScore = calculateEvaluation(lateMinutes, 0, totalWorkMinutes);
     await db.daily_evaluations.upsert(req.user.id, today, {
       evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: 0,
@@ -261,14 +263,12 @@ router.get('/my-salary', async (req, res) => {
     if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
 
     const salary = user.salary || 0;
-    const hourlyRate = salary / (30 * 8);
+    const deptSettings = await db.departments.getWorkSettings(user.department_id);
+    const workDaysPerWeek = deptSettings.work_days_per_week || 5;
+    const workHoursPerDay = (parseInt(deptSettings.work_end_hour.split(':')[0]) * 60 + parseInt(deptSettings.work_end_hour.split(':')[1]) - parseInt(deptSettings.work_start_hour.split(':')[0]) * 60 - parseInt(deptSettings.work_start_hour.split(':')[1])) / 60;
+    const monthlyHours = workDaysPerWeek * 4 * workHoursPerDay;
+    const hourlyRate = monthlyHours > 0 ? salary / monthlyHours : 0;
     const perMinuteRate = hourlyRate / 60;
-
-    const settings = await db.work_settings.get();
-    const workStartParts = (settings.work_start_hour || '09:00').split(':');
-    const workEndParts = (settings.work_end_hour || '17:00').split(':');
-    const startMin = parseInt(workStartParts[0]) * 60 + parseInt(workStartParts[1]);
-    const endMin = parseInt(workEndParts[0]) * 60 + parseInt(workEndParts[1]);
 
     const now = new Date();
     const month = now.getMonth() + 1;
@@ -287,17 +287,22 @@ router.get('/my-salary', async (req, res) => {
     let lateDaysCount = 0;
     let earlyDaysCount = 0;
     let exemptDays = 0;
+    let presentDays = 0;
+    let absentDays = 0;
     for (const att of attendance) {
       if (hasApprovedPermission(att.date)) { exemptDays++; continue; }
       if (att.check_in_time && att.status === 'late') {
         const ci = new Date(att.check_in_time);
         const ciMin = ci.getHours() * 60 + ci.getMinutes();
+        const startMin = parseInt(deptSettings.work_start_hour.split(':')[0]) * 60 + parseInt(deptSettings.work_start_hour.split(':')[1]);
         totalLateMinutes += Math.max(0, ciMin - startMin);
         lateDaysCount++;
       }
+      if (att.check_in_time) presentDays++; else absentDays++;
       if (att.check_out_time) {
         const co = new Date(att.check_out_time);
         const coMin = co.getHours() * 60 + co.getMinutes();
+        const endMin = parseInt(deptSettings.work_end_hour.split(':')[0]) * 60 + parseInt(deptSettings.work_end_hour.split(':')[1]);
         const early = Math.max(0, endMin - coMin);
         if (early > 0) { totalEarlyLeave += early; earlyDaysCount++; }
         const overtime = Math.max(0, coMin - endMin);
@@ -314,6 +319,8 @@ router.get('/my-salary', async (req, res) => {
       salary,
       hourly_rate: Math.round(hourlyRate * 100) / 100,
       per_minute_rate: Math.round(perMinuteRate * 100) / 100,
+      work_days_per_week: workDaysPerWeek,
+      monthly_hours: monthlyHours,
       month, year,
       total_late_minutes: totalLateMinutes,
       total_early_leave_minutes: totalEarlyLeave,
@@ -322,6 +329,10 @@ router.get('/my-salary', async (req, res) => {
       overtime_hours: Math.round(totalOvertimeHours * 100) / 100,
       overtime_pay: Math.round(overtimePay * 100) / 100,
       exempt_days: exemptDays,
+      present_days: presentDays,
+      absent_days: absentDays,
+      late_days: lateDaysCount,
+      early_days: earlyDaysCount,
       net_salary: Math.round(netSalary * 100) / 100
     });
   } catch (err) {
@@ -395,12 +406,13 @@ router.get('/approved-permission', async (req, res) => {
   }
 });
 
-// Get work settings (for employee to know work end time)
+// Get work settings (for employee to know work end time - uses department settings)
 router.get('/work-settings', async (req, res) => {
   const db = getDb();
   try {
-    const settings = await db.work_settings.get();
-    res.json(settings);
+    const user = await db.users.get(req.user.id);
+    const deptSettings = await db.departments.getWorkSettings(user ? user.department_id : null);
+    res.json(deptSettings);
   } catch (err) {
     res.status(500).json({ error: 'خطأ في جلب الإعدادات' });
   }

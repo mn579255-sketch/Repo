@@ -10,12 +10,9 @@ const c = new Client({
 
 async function run() {
   await c.connect();
-  await c.query("ALTER TABLE requests ADD COLUMN IF NOT EXISTS checkout_date DATE");
-  await c.query("ALTER TABLE requests ADD COLUMN IF NOT EXISTS checkout_time TEXT");
-  await c.query("ALTER TABLE requests ADD COLUMN IF NOT EXISTS checkout_lat NUMERIC");
-  await c.query("ALTER TABLE requests ADD COLUMN IF NOT EXISTS checkout_lng NUMERIC");
-  await c.query("ALTER TABLE requests ADD COLUMN IF NOT EXISTS admin_reviewed_by INTEGER");
-  await c.query("ALTER TABLE requests ADD COLUMN IF NOT EXISTS admin_status TEXT DEFAULT 'pending'");
+  await c.query("ALTER TABLE departments ADD COLUMN IF NOT EXISTS work_start_hour TEXT DEFAULT '09:00'");
+  await c.query("ALTER TABLE departments ADD COLUMN IF NOT EXISTS work_end_hour TEXT DEFAULT '17:00'");
+  await c.query("ALTER TABLE departments ADD COLUMN IF NOT EXISTS work_days_per_week INTEGER DEFAULT 5");
   console.log('Done');
   await c.end();
 }

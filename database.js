@@ -74,6 +74,16 @@ function getDb() {
       async remove(id) {
         await supabase.from('users').update({ department_id: null }).eq('department_id', id);
         await supabase.from('departments').delete().eq('id', id);
+      },
+      async getWorkSettings(departmentId) {
+        if (!departmentId) return { work_start_hour: '09:00', work_end_hour: '17:00', work_days_per_week: 5 };
+        const dept = await this.get(departmentId);
+        if (!dept) return { work_start_hour: '09:00', work_end_hour: '17:00', work_days_per_week: 5 };
+        return {
+          work_start_hour: dept.work_start_hour || '09:00',
+          work_end_hour: dept.work_end_hour || '17:00',
+          work_days_per_week: dept.work_days_per_week || 5
+        };
       }
     },
     company_location: {
