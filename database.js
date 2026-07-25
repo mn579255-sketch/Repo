@@ -1,5 +1,4 @@
 const { createClient } = require('@supabase/supabase-js');
-const bcrypt = require('bcryptjs');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://jztgixbnewjribtqvujb.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp6dGdpeGJuZXdqcmlidHF2dWpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ5NDc1MTIsImV4cCI6MjEwMDUyMzUxMn0.q3_iLMpBgAH_TG25Doy435UVL8qKcoStFXSwAXX4m38';
@@ -44,8 +43,37 @@ function getDb() {
         if (error) throw error;
         return data;
       },
+      async update(id, updates) {
+        const { data, error } = await supabase.from('users').update(updates).eq('id', id).select().single();
+        if (error) throw error;
+        return data;
+      },
       async remove(id) {
         await supabase.from('users').delete().eq('id', id);
+      }
+    },
+    departments: {
+      async getAll() {
+        const { data } = await supabase.from('departments').select('*').order('name');
+        return data || [];
+      },
+      async get(id) {
+        const { data } = await supabase.from('departments').select('*').eq('id', id).single();
+        return data;
+      },
+      async create(deptData) {
+        const { data, error } = await supabase.from('departments').insert(deptData).select().single();
+        if (error) throw error;
+        return data;
+      },
+      async update(id, updates) {
+        const { data, error } = await supabase.from('departments').update(updates).eq('id', id).select().single();
+        if (error) throw error;
+        return data;
+      },
+      async remove(id) {
+        await supabase.from('users').update({ department_id: null }).eq('department_id', id);
+        await supabase.from('departments').delete().eq('id', id);
       }
     },
     company_location: {

@@ -46,12 +46,8 @@ function calculateWorkMinutes(workStart, workEnd) {
 
 function calculateEvaluation(lateMinutes, earlyLeaveMinutes, totalWorkMinutes) {
   let score = 100;
-  if (lateMinutes > 0) {
-    score -= Math.min(lateMinutes / totalWorkMinutes, 1) * 40;
-  }
-  if (earlyLeaveMinutes > 0) {
-    score -= Math.min(earlyLeaveMinutes / totalWorkMinutes, 1) * 30;
-  }
+  if (lateMinutes > 0) score -= Math.min(lateMinutes / totalWorkMinutes, 1) * 40;
+  if (earlyLeaveMinutes > 0) score -= Math.min(earlyLeaveMinutes / totalWorkMinutes, 1) * 30;
   return Math.max(0, Math.round(score * 100) / 100);
 }
 
@@ -69,22 +65,14 @@ router.post('/checkin', async (req, res) => {
   const db = getDb();
   try {
     const { latitude, longitude } = req.body;
-    if (!latitude || !longitude) {
-      return res.status(400).json({ error: 'الموقع الجغرافي مطلوب' });
-    }
+    if (!latitude || !longitude) return res.status(400).json({ error: 'الموقع الجغرافي مطلوب' });
 
     const location = await db.company_location.get();
-    if (!location) {
-      return res.status(400).json({ error: 'لم يتم تعيين موقع الشركة بعد - يرجى مراجعة الأدمن' });
-    }
+    if (!location) return res.status(400).json({ error: 'لم يتم تعيين موقع الشركة بعد - يرجى مراجعة الأدمن' });
 
     const distance = calculateDistance(latitude, longitude, location.latitude, location.longitude);
     if (distance > location.radius) {
-      return res.status(400).json({
-        error: 'أنت خارج نطاق الموقع المحدد',
-        distance: Math.round(distance),
-        radius: location.radius
-      });
+      return res.status(400).json({ error: 'أنت خارج نطاق الموقع المحدد', distance: Math.round(distance), radius: location.radius });
     }
 
     const now = new Date();
@@ -96,21 +84,15 @@ router.post('/checkin', async (req, res) => {
     const workStart = settings.work_start_hour || '09:00';
 
     let status = 'present';
-    if (currentTime > workStart) {
-      status = 'late';
-    }
+    if (currentTime > workStart) status = 'late';
 
     const existing = await db.attendance.get(req.user.id, today);
-
     if (existing && existing.check_in_time) {
       return res.status(400).json({ error: 'تم تسجيل حضورك اليوم بالفعل', checkInTime: existing.check_in_time });
     }
 
     await db.attendance.upsert(req.user.id, today, {
-      check_in_time: nowISO,
-      check_in_lat: latitude,
-      check_in_lng: longitude,
-      status: status,
+      check_in_time: nowISO, check_in_lat: latitude, check_in_lng: longitude, status,
       check_out_time: existing ? existing.check_out_time : null,
       check_out_lat: existing ? existing.check_out_lat : null,
       check_out_lng: existing ? existing.check_out_lng : null,
@@ -118,26 +100,15 @@ router.post('/checkin', async (req, res) => {
     });
 
     const lateMinutes = status === 'late' ? calculateLateMinutes(workStart, currentTime) : 0;
-
     if (lateMinutes > 0) {
       const totalWorkMinutes = calculateWorkMinutes(settings.work_start_hour, settings.work_end_hour);
       const evalScore = calculateEvaluation(lateMinutes, 0, totalWorkMinutes);
       await db.daily_evaluations.upsert(req.user.id, today, {
-        evaluation_score: evalScore,
-        total_late_minutes: lateMinutes,
-        early_leave_minutes: 0,
-        notes: null
+        evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: 0, notes: null
       });
     }
 
-    const statusText = status === 'late' ? 'متأخر' : 'حاضر';
-    res.json({
-      message: `تم تسجيل حضورك بنجاح - الحالة: ${statusText}`,
-      status,
-      time: nowISO,
-      distance: Math.round(distance),
-      lateMinutes
-    });
+    res.json({ message: `تم تسجيل حضورك بنجاح - الحالة: ${status === 'late' ? 'متأخر' : 'حاضر'}`, status, time: nowISO, distance: Math.round(distance), lateMinutes });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تسجيل الحضور: ' + err.message });
   }
@@ -153,17 +124,11 @@ router.post('/checkout', async (req, res) => {
     const currentTime = now.toTimeString().slice(0, 5);
 
     const existing = await db.attendance.get(req.user.id, today);
-    if (!existing || !existing.check_in_time) {
-      return res.status(400).json({ error: 'لم تسجل حضورك اليوم بعد' });
-    }
-    if (existing.check_out_time) {
-      return res.status(400).json({ error: 'تم تسجيل انصرافك بالفعل اليوم', checkOutTime: existing.check_out_time });
-    }
+    if (!existing || !existing.check_in_time) return res.status(400).json({ error: 'لم تسجل حضورك اليوم بعد' });
+    if (existing.check_out_time) return res.status(400).json({ error: 'تم تسجيل انصرافك بالفعل اليوم', checkOutTime: existing.check_out_time });
 
     await db.attendance.update(req.user.id, today, {
-      check_out_time: nowISO,
-      check_out_lat: latitude || null,
-      check_out_lng: longitude || null
+      check_out_time: nowISO, check_out_lat: latitude || null, check_out_lng: longitude || null
     });
 
     const settings = await db.work_settings.get();
@@ -175,18 +140,11 @@ router.post('/checkout', async (req, res) => {
       const lateMinutes = existing.status === 'late' ? calculateLateMinutes(settings.work_start_hour, new Date(existing.check_in_time).toTimeString().slice(0, 5)) : 0;
       const evalScore = calculateEvaluation(lateMinutes, earlyLeaveMinutes, totalWorkMinutes);
       await db.daily_evaluations.upsert(req.user.id, today, {
-        evaluation_score: evalScore,
-        total_late_minutes: lateMinutes,
-        early_leave_minutes: earlyLeaveMinutes,
-        notes: null
+        evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: earlyLeaveMinutes, notes: null
       });
     }
 
-    res.json({
-      message: 'تم تسجيل انصرافك بنجاح',
-      time: nowISO,
-      earlyLeaveMinutes
-    });
+    res.json({ message: 'تم تسجيل انصرافك بنجاح', time: nowISO, earlyLeaveMinutes });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تسجيل الانصراف: ' + err.message });
   }
@@ -218,10 +176,8 @@ router.get('/my-evaluations', async (req, res) => {
     } else {
       evaluations = await db.daily_evaluations.getByUser(req.user.id);
     }
-
     const summary = await db.daily_evaluations.getSummary(req.user.id);
     const attStats = await db.attendance.getUserStats(req.user.id);
-
     res.json({ evaluations, summary: { ...summary, ...attStats } });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في جلب التقييمات' });
@@ -236,6 +192,60 @@ router.get('/today-status', async (req, res) => {
     res.json(attendance || { checkedIn: false, date: today });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في جلب حالة اليوم' });
+  }
+});
+
+router.get('/my-salary', async (req, res) => {
+  const db = getDb();
+  try {
+    const user = await db.users.get(req.user.id);
+    if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
+
+    const salary = user.salary || 0;
+    const hourlyRate = salary / (30 * 8);
+    const perMinuteRate = hourlyRate / 60;
+
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+    const attendance = await db.attendance.getByUserMonth(req.user.id, month, year);
+    const evaluations = await db.daily_evaluations.getByUserMonth(req.user.id, month, year);
+
+    let totalLateMinutes = 0;
+    let totalEarlyLeave = 0;
+    for (const att of attendance) {
+      if (att.check_in_time && att.status === 'late') {
+        const ci = new Date(att.check_in_time);
+        const ciMin = ci.getHours() * 60 + ci.getMinutes();
+        const startMin = 9 * 60;
+        totalLateMinutes += Math.max(0, ciMin - startMin);
+      }
+      if (att.check_out_time) {
+        const co = new Date(att.check_out_time);
+        const coMin = co.getHours() * 60 + co.getMinutes();
+        const endMin = 17 * 60;
+        const early = Math.max(0, endMin - coMin);
+        if (early > 0) totalEarlyLeave += early;
+      }
+    }
+
+    const totalDeductionMinutes = totalLateMinutes + totalEarlyLeave;
+    const deductionAmount = totalDeductionMinutes * perMinuteRate * 2;
+    const netSalary = Math.max(0, salary - deductionAmount);
+
+    res.json({
+      salary,
+      hourly_rate: Math.round(hourlyRate * 100) / 100,
+      per_minute_rate: Math.round(perMinuteRate * 100) / 100,
+      month, year,
+      total_late_minutes: totalLateMinutes,
+      total_early_leave_minutes: totalEarlyLeave,
+      total_deduction_minutes: totalDeductionMinutes,
+      deduction_amount: Math.round(deductionAmount * 100) / 100,
+      net_salary: Math.round(netSalary * 100) / 100
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في جلب بيانات الراتب' });
   }
 });
 

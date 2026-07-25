@@ -16,9 +16,11 @@ console.log('Supabase connected');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const employeeRoutes = require('./routes/employee');
+const departmentRoutes = require('./routes/departments');
 const { authenticateToken, requireAdmin } = require('./middleware/auth');
 
 app.use('/api/auth', authRoutes);
+app.use('/api/admin/departments', authenticateToken, requireAdmin, departmentRoutes);
 app.use('/api/admin', authenticateToken, requireAdmin, adminRoutes);
 app.use('/api/employee', authenticateToken, employeeRoutes);
 
