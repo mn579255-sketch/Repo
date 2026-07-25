@@ -229,14 +229,6 @@ router.get('/salary-report', async (req, res) => {
           if (overtimeMin > 0) totalOvertimeHours += overtimeMin / 60;
         }
       }
-          if (earlyMin > 0) {
-            totalEarlyLeave += earlyMin;
-            earlyDays++;
-          }
-          const overtimeMin = calculateOvertimeFromTimes(att.check_out_time, '17:00');
-          if (overtimeMin > 0) totalOvertimeHours += overtimeMin / 60;
-        }
-      }
 
       const totalDeductionMinutes = totalLateMinutes + totalEarlyLeave;
       const deductionAmount = totalDeductionMinutes * perMinuteRate * 2;
