@@ -45,6 +45,10 @@ const Icons = {
   money: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
   building: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="9" y1="22" x2="9" y2="18"/><line x1="15" y1="22" x2="15" y2="18"/><line x1="9" y1="14" x2="9" y2="14.01"/><line x1="15" y1="14" x2="15" y2="14.01"/><line x1="9" y1="10" x2="9" y2="10.01"/><line x1="15" y1="10" x2="15" y2="10.01"/><line x1="9" y1="6" x2="9" y2="6.01"/><line x1="15" y1="6" x2="15" y2="6.01"/></svg>',
   report: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>',
+  request: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="12" y1="17" x2="12" y2="11"/></svg>',
+  approve: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>',
+  reject: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
 };
 
 function renderLogin() {
@@ -140,6 +144,8 @@ function renderAdminDashboard() {
         <div class="section-title">الأقسام والرواتب</div>
         <button class="nav-item" onclick="showAdminView('departments', this)">${Icons.building} الأقسام</button>
         <button class="nav-item" onclick="showAdminView('salary-report', this)">${Icons.money} تقرير الرواتب</button>
+        <div class="section-title">الطلبات</div>
+        <button class="nav-item" onclick="showAdminView('requests', this)">${Icons.request} الطلبات</button>
         <div class="section-title">الإعدادات</div>
         <button class="nav-item" onclick="showAdminView('location', this)">${Icons.gps} الموقع الجغرافي</button>
         <button class="nav-item" onclick="showAdminView('worksettings', this)">${Icons.settings} ساعات العمل</button>
@@ -170,6 +176,7 @@ function showAdminView(view, btn) {
     case 'salary-report': loadAdminSalaryReport(content); break;
     case 'location': loadAdminLocation(content); break;
     case 'worksettings': loadAdminWorkSettings(content); break;
+    case 'requests': loadAdminRequests(content); break;
   }
 }
 
@@ -371,23 +378,29 @@ async function loadAdminDepartments(el) {
   try {
     const departments = await api('/admin/departments');
     const stats = await api('/admin/employees-stats');
+    const employees = await api('/admin/employees');
+    const empMap = {};
+    employees.forEach(e => { empMap[e.id] = e.name; });
+
     el.innerHTML = `
       <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
         <div><h2>الأقسام</h2><p>إدارة أقسام الشركة</p></div>
         <button class="btn btn-primary btn-sm" onclick="showAddDepartmentModal()">+ إضافة قسم</button>
       </div>
-      ${departments.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px">
+      ${departments.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px">
         ${departments.map(d => {
           const deptEmps = stats.filter(s => s.department_id === d.id);
           const deptSalary = deptEmps.reduce((a, s) => a + (s.salary || 0), 0);
+          const headName = d.head_id ? empMap[d.head_id] || 'غير محدد' : 'غير محدد';
           return `<div class="card" style="cursor:default">
             <div style="display:flex;justify-content:space-between;align-items:start">
               <div><h3 style="color:var(--primary)">${d.name}</h3>${d.description ? `<p style="color:var(--gray-500);font-size:0.875rem">${d.description}</p>` : ''}</div>
               <div style="display:flex;gap:4px">
-                <button class="btn btn-outline btn-sm" onclick="showEditDepartmentModal(${d.id},'${d.name.replace(/'/g,"\\'")}','${(d.description||'').replace(/'/g,"\\'")}')">${Icons.edit}</button>
+                <button class="btn btn-outline btn-sm" onclick="showEditDepartmentModal(${d.id},'${d.name.replace(/'/g,"\\'")}','${(d.description||'').replace(/'/g,"\\'")}',${d.head_id||'null'})">${Icons.edit}</button>
                 <button class="btn btn-danger btn-sm" onclick="deleteDepartment(${d.id},'${d.name.replace(/'/g,"\\'")}')">${Icons.trash}</button>
               </div>
             </div>
+            <div style="margin-top:8px"><span style="color:var(--primary);font-size:0.875rem;font-weight:600">${Icons.employees} مدير القسم: ${headName}</span></div>
             <div style="margin-top:16px;display:flex;gap:16px;flex-wrap:wrap">
               <div class="stat-card" style="flex:1;min-width:100px;padding:12px"><div class="stat-info"><h4>الموظفين</h4><div class="stat-value" style="font-size:1.25rem">${deptEmps.length}</div></div></div>
               <div class="stat-card" style="flex:1;min-width:100px;padding:12px"><div class="stat-info"><h4>إجمالي الرواتب</h4><div class="stat-value" style="font-size:1rem">${fmt(deptSalary)} ج.م</div></div></div>
@@ -421,7 +434,8 @@ function showAddDepartmentModal() {
   };
 }
 
-function showEditDepartmentModal(id, name, desc) {
+async function showEditDepartmentModal(id, name, desc, headId) {
+  const employees = await api('/admin/employees');
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
@@ -429,6 +443,7 @@ function showEditDepartmentModal(id, name, desc) {
     <form id="editDeptForm">
       <div class="form-group"><label>اسم القسم</label><input type="text" id="deptName" value="${name}" required></div>
       <div class="form-group"><label>الوصف</label><input type="text" id="deptDesc" value="${desc}"></div>
+      <div class="form-group"><label>مدير القسم</label><select id="deptHead"><option value="">بدون مدير</option>${employees.map(e => `<option value="${e.id}" ${e.id == headId ? 'selected' : ''}>${e.name}</option>`).join('')}</select></div>
       <div style="display:flex;gap:8px"><button type="submit" class="btn btn-primary">حفظ</button><button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">إلغاء</button></div>
     </form></div>`;
   document.body.appendChild(overlay);
@@ -436,6 +451,8 @@ function showEditDepartmentModal(id, name, desc) {
     e.preventDefault();
     try {
       await api(`/admin/departments/${id}`, { method: 'PUT', body: JSON.stringify({ name: document.getElementById('deptName').value, description: document.getElementById('deptDesc').value }) });
+      const headId = document.getElementById('deptHead').value;
+      await api(`/admin/departments/${id}/head`, { method: 'PUT', body: JSON.stringify({ head_id: headId ? parseInt(headId) : null }) });
       showToast('تم تحديث القسم بنجاح', 'success');
       overlay.remove();
       showAdminView('departments');
@@ -510,6 +527,58 @@ async function filterSalaryReport() {
   try {
     const report = await api(`/admin/salary-report?month=${month}&year=${year}`);
     document.getElementById('salaryReportTable').innerHTML = renderSalaryReportTable(report);
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+/* ============ ADMIN REQUESTS ============ */
+async function loadAdminRequests(el) {
+  el.innerHTML = `<div class="spinner"></div>`;
+  try {
+    const requests = await api('/admin/requests');
+    const typeMap = { leave: 'إجازة', permission: 'إذن', mission: 'مأمورية' };
+    const statusMap = { pending: 'معلق', approved: 'تمت الموافقة', rejected: 'مرفوض' };
+    const statusClass = { pending: 'badge-pending', approved: 'badge-present', rejected: 'badge-absent' };
+
+    el.innerHTML = `<div class="page-header"><h2>الطلبات</h2><p>إدارة طلبات الإجازات والأذونات والمأموريات</p></div>
+      <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">
+        <div class="stat-card"><div class="stat-icon yellow">${Icons.clock}</div><div class="stat-info"><h4>معلقة</h4><div class="stat-value">${requests.filter(r => r.status === 'pending').length}</div></div></div>
+        <div class="stat-card"><div class="stat-icon green">${Icons.check}</div><div class="stat-info"><h4>تمت الموافقة</h4><div class="stat-value">${requests.filter(r => r.status === 'approved').length}</div></div></div>
+        <div class="stat-card"><div class="stat-icon red">${Icons.reject}</div><div class="stat-info"><h4>مرفوضة</h4><div class="stat-value">${requests.filter(r => r.status === 'rejected').length}</div></div></div>
+      </div>
+      <div class="card">
+        <div id="adminRequestsTable">${renderAdminRequestsTable(requests)}</div>
+      </div>`;
+  } catch (err) { el.innerHTML = `<div class="empty-state"><p>خطأ: ${err.message}</p></div>`; }
+}
+
+function renderAdminRequestsTable(requests) {
+  const typeMap = { leave: 'إجازة', permission: 'إذن', mission: 'مأمورية' };
+  const statusMap = { pending: 'معلق', approved: 'تمت الموافقة', rejected: 'مرفوض' };
+  if (!requests.length) return '<div class="empty-state"><p>لا توجد طلبات</p></div>';
+  return `<div class="table-container"><table><thead><tr><th>الموظف</th><th>القسم</th><th>النوع</th><th>من</th><th>إلى</th><th>السبب</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody>
+    ${requests.map(r => `<tr>
+      <td><strong>${r.employee_name}</strong></td>
+      <td>${r.employee_department}</td>
+      <td><span class="badge badge-present" style="background:#e0e7ff;color:#3730a3">${typeMap[r.type]}</span></td>
+      <td>${r.date_from}</td>
+      <td>${r.date_to || r.date_from}</td>
+      <td>${r.reason || '-'}</td>
+      <td><span class="badge ${statusClass[r.status]}">${statusMap[r.status]}</span></td>
+      <td>${r.status === 'pending' ? `
+        <button class="btn btn-success btn-sm" onclick="adminReviewRequest(${r.id},'approved')">موافقة</button>
+        <button class="btn btn-danger btn-sm" onclick="adminReviewRequest(${r.id},'rejected')">رفض</button>
+      ` : (r.reviewer_name ? `<span style="color:var(--gray-400);font-size:0.75rem">${r.reviewer_name}</span>` : '')}</td>
+    </tr>`).join('')}
+  </tbody></table></div>`;
+}
+
+async function adminReviewRequest(id, status) {
+  const notes = status === 'rejected' ? prompt('سبب الرفض (اختياري):') : '';
+  if (status === 'rejected' && notes === null) return;
+  try {
+    await api(`/admin/requests/${id}`, { method: 'PUT', body: JSON.stringify({ status, review_notes: notes }) });
+    showToast(status === 'approved' ? 'تمت الموافقة على الطلب' : 'تم رفض الطلب', 'success');
+    loadAdminRequests(document.getElementById('adminContent'));
   } catch (err) { showToast(err.message, 'error'); }
 }
 
@@ -588,14 +657,20 @@ async function loadAdminWorkSettings(el) {
 /* ============ EMPLOYEE DASHBOARD ============ */
 let empCurrentView = 'today';
 
-function renderEmployeeDashboard() {
+async function renderEmployeeDashboard() {
   const user = getUser();
+  let isHead = false;
+  try {
+    const dept = await api('/employee/my-department').catch(() => null);
+    if (dept && dept.head_id === user.id) isHead = true;
+  } catch(e) {}
+
   document.getElementById('app').innerHTML = `
     <div class="top-nav">
       <div class="nav-right">
         <div class="user-info">
           <span class="user-name">${user.name}</span>
-          <span class="user-role role-employee">موظف</span>
+          <span class="user-role role-employee">${isHead ? 'مدير قسم' : 'موظف'}</span>
         </div>
       </div>
       <div class="nav-left">
@@ -609,6 +684,13 @@ function renderEmployeeDashboard() {
         <button class="nav-item" onclick="showEmpView('attendance', this)">${Icons.attendance} سجلات الحضور</button>
         <button class="nav-item" onclick="showEmpView('evaluation', this)">${Icons.stats} تقييمي</button>
         <button class="nav-item" onclick="showEmpView('salary', this)">${Icons.money} راتبي</button>
+        <div class="section-title">طلباتي</div>
+        <button class="nav-item" onclick="showEmpView('requests', this)">${Icons.request} طلباتي</button>
+        <button class="nav-item" onclick="showEmpView('new-request', this)">${Icons.edit} طلب جديد</button>
+        ${isHead ? `
+          <div class="section-title">إدارة القسم</div>
+          <button class="nav-item" onclick="showEmpView('head-requests', this)">${Icons.approve} طلبات القسم</button>
+        ` : ''}
         <div class="section-title">حسابي</div>
         <button class="nav-item" onclick="showEmpView('profile', this)">${Icons.edit} بياناتي</button>
       </nav>
@@ -628,6 +710,9 @@ function showEmpView(view, btn) {
     case 'evaluation': loadEmpEvaluation(content); break;
     case 'salary': loadEmpSalary(content); break;
     case 'profile': loadEmpProfile(content); break;
+    case 'requests': loadEmpRequests(content); break;
+    case 'new-request': loadEmpNewRequest(content); break;
+    case 'head-requests': loadHeadRequests(content); break;
   }
 }
 
@@ -799,6 +884,119 @@ async function loadEmpProfile(el) {
       } catch (err) { showToast(err.message, 'error'); }
     };
   } catch (err) { el.innerHTML = `<div class="empty-state"><p>خطأ: ${err.message}</p></div>`; }
+}
+
+/* ============ EMPLOYEE REQUESTS ============ */
+async function loadEmpRequests(el) {
+  el.innerHTML = `<div class="spinner"></div>`;
+  try {
+    const requests = await api('/employee/my-requests');
+    const typeMap = { leave: 'إجازة', permission: 'إذن', mission: 'مأمورية' };
+    const statusMap = { pending: 'معلق', approved: 'تمت الموافقة', rejected: 'مرفوض' };
+    const statusClass = { pending: 'badge-pending', approved: 'badge-present', rejected: 'badge-absent' };
+
+    el.innerHTML = `<div class="page-header"><h2>طلباتي</h2><p>جميع طلبات الإجازات والأذونات والمأموريات</p></div>
+      <div class="card">
+        ${requests.length ? `<div class="table-container"><table><thead><tr><th>النوع</th><th>من</th><th>إلى</th><th>السبب</th><th>الحالة</th><th>المراجع</th></tr></thead><tbody>
+          ${requests.map(r => `<tr>
+            <td><span class="badge badge-present" style="background:#e0e7ff;color:#3730a3">${typeMap[r.type]}</span></td>
+            <td>${r.date_from}</td>
+            <td>${r.date_to || r.date_from}</td>
+            <td>${r.reason || '-'}</td>
+            <td><span class="badge ${statusClass[r.status]}">${statusMap[r.status]}</span></td>
+            <td>${r.reviewer_name || '-'}</td>
+          </tr>`).join('')}
+        </tbody></table></div>` : '<div class="empty-state"><p>لم تقدم أي طلبات بعد</p><button class="btn btn-primary" style="margin-top:12px" onclick="showEmpView(\'new-request\')"> تقديم طلب جديد</button></div>'}
+      </div>`;
+  } catch (err) { el.innerHTML = `<div class="empty-state"><p>خطأ: ${err.message}</p></div>`; }
+}
+
+async function loadEmpNewRequest(el) {
+  el.innerHTML = `<div class="spinner"></div>`;
+  try {
+    const [userData, existingRequests] = await Promise.all([api('/auth/me'), api('/employee/my-requests').catch(() => [])]);
+    const pending = existingRequests.find(r => r.status === 'pending');
+
+    const today = new Date().toISOString().split('T')[0];
+    el.innerHTML = `<div class="page-header"><h2>طلب جديد</h2><p>تقديم طلب إجازة أو إذن أو مأمورية</p></div>
+      ${pending ? `<div class="card" style="border:2px solid var(--warning);background:#fffbeb"><p style="color:var(--warning);font-weight:600">${Icons.alert} لديك طلب معلق بالفعل. انتظر رد المدير عليه.</p></div>` : ''}
+      <div class="card">
+        <form id="newRequestForm" ${pending ? 'style="opacity:0.5;pointer-events:none"' : ''}>
+          <div class="form-group"><label>نوع الطلب</label>
+            <select id="reqType" required>
+              <option value="">اختر نوع الطلب</option>
+              <option value="leave">إجازة</option>
+              <option value="permission">إذن خروج/دخول</option>
+              <option value="mission">مأمورية عمل</option>
+            </select>
+          </div>
+          <div class="form-group"><label>من تاريخ</label><input type="date" id="reqDateFrom" value="${today}" required></div>
+          <div class="form-group"><label>إلى تاريخ</label><input type="date" id="reqDateTo" value="${today}"></div>
+          <div class="form-group"><label>سبب الطلب</label><textarea id="reqReason" rows="3" placeholder="اكتب سبب الطلب..." style="width:100%;padding:10px;border:2px solid var(--gray-200);border-radius:8px;resize:vertical;font-family:inherit"></textarea></div>
+          <button type="submit" class="btn btn-primary" style="width:auto" ${pending ? 'disabled' : ''}>${Icons.send} إرسال الطلب</button>
+        </form>
+      </div>`;
+
+    if (!pending) {
+      document.getElementById('newRequestForm').onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          await api('/employee/requests', { method: 'POST', body: JSON.stringify({
+            type: document.getElementById('reqType').value,
+            date_from: document.getElementById('reqDateFrom').value,
+            date_to: document.getElementById('reqDateTo').value || document.getElementById('reqDateFrom').value,
+            reason: document.getElementById('reqReason').value
+          })});
+          showToast('تم إرسال الطلب بنجاح', 'success');
+          showEmpView('requests');
+        } catch (err) { showToast(err.message, 'error'); }
+      };
+    }
+  } catch (err) { el.innerHTML = `<div class="empty-state"><p>خطأ: ${err.message}</p></div>`; }
+}
+
+/* ============ HEAD REQUESTS ============ */
+async function loadHeadRequests(el) {
+  el.innerHTML = `<div class="spinner"></div>`;
+  try {
+    const requests = await api('/head/requests');
+    const typeMap = { leave: 'إجازة', permission: 'إذن', mission: 'مأمورية' };
+    const statusMap = { pending: 'معلق', approved: 'تمت الموافقة', rejected: 'مرفوض' };
+    const statusClass = { pending: 'badge-pending', approved: 'badge-present', rejected: 'badge-absent' };
+
+    el.innerHTML = `<div class="page-header"><h2>طلبات القسم</h2><p>مراجعة وموافقة أو رفض طلبات الموظفين في قسمك</p></div>
+      <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">
+        <div class="stat-card"><div class="stat-icon yellow">${Icons.clock}</div><div class="stat-info"><h4>معلقة</h4><div class="stat-value">${requests.filter(r => r.status === 'pending').length}</div></div></div>
+        <div class="stat-card"><div class="stat-icon green">${Icons.check}</div><div class="stat-info"><h4>تمت الموافقة</h4><div class="stat-value">${requests.filter(r => r.status === 'approved').length}</div></div></div>
+        <div class="stat-card"><div class="stat-icon red">${Icons.reject}</div><div class="stat-info"><h4>مرفوضة</h4><div class="stat-value">${requests.filter(r => r.status === 'rejected').length}</div></div></div>
+      </div>
+      <div class="card">
+        ${requests.length ? `<div class="table-container"><table><thead><tr><th>الموظف</th><th>النوع</th><th>من</th><th>إلى</th><th>السبب</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody>
+          ${requests.map(r => `<tr>
+            <td><strong>${r.employee_name}</strong><br><span style="color:var(--gray-400);font-size:0.75rem">${r.employee_phone}</span></td>
+            <td><span class="badge badge-present" style="background:#e0e7ff;color:#3730a3">${typeMap[r.type]}</span></td>
+            <td>${r.date_from}</td>
+            <td>${r.date_to || r.date_from}</td>
+            <td>${r.reason || '-'}</td>
+            <td><span class="badge ${statusClass[r.status]}">${statusMap[r.status]}</span></td>
+            <td>${r.status === 'pending' ? `
+              <button class="btn btn-success btn-sm" onclick="headReviewRequest(${r.id},'approved')">موافقة</button>
+              <button class="btn btn-danger btn-sm" onclick="headReviewRequest(${r.id},'rejected')">رفض</button>
+            ` : (r.reviewer_name ? `<span style="color:var(--gray-400);font-size:0.75rem">${r.reviewer_name}</span>` : '')}</td>
+          </tr>`).join('')}
+        </tbody></table></div>` : '<div class="empty-state"><p>لا توجد طلبات في قسمك</p></div>'}
+      </div>`;
+  } catch (err) { el.innerHTML = `<div class="empty-state"><p>خطأ: ${err.message}</p></div>`; }
+}
+
+async function headReviewRequest(id, status) {
+  const notes = status === 'rejected' ? prompt('سبب الرفض (اختياري):') : '';
+  if (status === 'rejected' && notes === null) return;
+  try {
+    await api(`/head/requests/${id}`, { method: 'PUT', body: JSON.stringify({ status, review_notes: notes }) });
+    showToast(status === 'approved' ? 'تمت الموافقة على الطلب' : 'تم رفض الطلب', 'success');
+    loadHeadRequests(document.getElementById('empContent'));
+  } catch (err) { showToast(err.message, 'error'); }
 }
 
 /* ============ NAVIGATION ============ */

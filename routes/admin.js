@@ -294,4 +294,74 @@ router.post('/attendance/manual', async (req, res) => {
   }
 });
 
+// Department head assignment
+router.put('/departments/:id/head', async (req, res) => {
+  const db = getDb();
+  try {
+    const { head_id } = req.body;
+    await db.departments.update(req.params.id, { head_id: head_id || null });
+    res.json({ message: 'تم تعيين مدير القسم بنجاح' });
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في تعيين مدير القسم: ' + err.message });
+  }
+});
+
+// Get all requests
+router.get('/requests', async (req, res) => {
+  const db = getDb();
+  try {
+    const requests = await db.requests.getAll();
+    const users = await db.users.getAll();
+    const userMap = {};
+    users.forEach(u => { userMap[u.id] = u; });
+    const departments = await db.departments.getAll();
+    const deptMap = {};
+    departments.forEach(d => { deptMap[d.id] = d.name; });
+    const enriched = requests.map(r => ({
+      ...r,
+      employee_name: userMap[r.user_id] ? userMap[r.user_id].name : 'غير معروف',
+      employee_department: deptMap[userMap[r.user_id]?.department_id] || 'غير محدد',
+      reviewer_name: r.reviewed_by && userMap[r.reviewed_by] ? userMap[r.reviewed_by].name : null
+    }));
+    res.json(enriched);
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في جلب الطلبات' });
+  }
+});
+
+// Admin approve/reject request
+router.put('/requests/:id', async (req, res) => {
+  const db = getDb();
+  try {
+    const { status, review_notes } = req.body;
+    if (!['approved', 'rejected'].includes(status)) return res.status(400).json({ error: 'حالة غير صحيحة' });
+    const updated = await db.requests.update(req.params.id, { status, reviewed_by: req.user.id, review_notes: review_notes || null });
+    res.json({ message: status === 'approved' ? 'تمت الموافقة على الطلب' : 'تم رفض الطلب', request: updated });
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في تحديث الطلب: ' + err.message });
+  }
+});
+
+// Admin edit any employee (allow editing name, email, phone, salary, department_id, role)
+router.put('/employees/:id/edit', async (req, res) => {
+  const db = getDb();
+  try {
+    const id = parseInt(req.params.id);
+    const user = await db.users.get(id);
+    if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
+    const { name, email, phone, salary, department_id } = req.body;
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (email !== undefined) updates.email = email;
+    if (phone !== undefined) updates.phone = phone;
+    if (salary !== undefined) updates.salary = salary;
+    if (department_id !== undefined) updates.department_id = department_id || null;
+    if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'لم يتم إدخال بيانات' });
+    await db.users.update(id, updates);
+    res.json({ message: 'تم تحديث البيانات بنجاح' });
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في التحديث: ' + err.message });
+  }
+});
+
 module.exports = router;

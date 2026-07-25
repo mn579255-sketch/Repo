@@ -48,16 +48,16 @@ router.post('/login', async (req, res) => {
     if (!valid) {
       return res.status(401).json({ error: 'كلمة المرور غير صحيحة' });
     }
-    const token = jwt.sign(
-      { id: user.id, name: user.name, role: user.role, email: user.email },
-      SECRET,
-      { expiresIn: '24h' }
-    );
-    res.json({
-      message: 'تم تسجيل الدخول بنجاح',
-      token,
-      user: { id: user.id, name: user.name, role: user.role, email: user.email, phone: user.phone }
-    });
+      const token = jwt.sign(
+        { id: user.id, name: user.name, role: user.role, email: user.email },
+        SECRET,
+        { expiresIn: '24h' }
+      );
+      res.json({
+        message: 'تم تسجيل الدخول بنجاح',
+        token,
+        user: { id: user.id, name: user.name, role: user.role, email: user.email, phone: user.phone, department_id: user.department_id, salary: user.salary }
+      });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تسجيل الدخول: ' + err.message });
   }

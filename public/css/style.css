@@ -479,6 +479,7 @@ tbody tr:hover {
 .badge-present { background: var(--success-light); color: var(--success); }
 .badge-late { background: var(--warning-light); color: var(--warning); }
 .badge-absent { background: var(--danger-light); color: var(--danger); }
+.badge-pending { background: #fef3c7; color: #92400e; }
 .badge-early_leave { background: #ede9fe; color: #7c3aed; }
 
 /* GPS Section */

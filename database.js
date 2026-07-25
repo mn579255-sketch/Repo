@@ -195,6 +195,37 @@ function getDb() {
       async removeByUser(userId) {
         await supabase.from('daily_evaluations').delete().eq('user_id', userId);
       }
+    },
+    requests: {
+      async create(data) {
+        const { data: result, error } = await supabase.from('requests').insert(data).select().single();
+        if (error) throw error;
+        return result;
+      },
+      async getByUser(userId) {
+        const { data } = await supabase.from('requests').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+        return data || [];
+      },
+      async getByDepartmentHead(departmentId) {
+        const { data } = await supabase.from('requests').select('*').order('created_at', { ascending: false });
+        if (!data) return [];
+        const users = await supabase.from('users').select('id').eq('department_id', departmentId);
+        const userIds = (users.data || []).map(u => u.id);
+        return data.filter(r => userIds.includes(r.user_id));
+      },
+      async getAll() {
+        const { data } = await supabase.from('requests').select('*').order('created_at', { ascending: false });
+        return data || [];
+      },
+      async update(id, updates) {
+        const { data, error } = await supabase.from('requests').update(updates).eq('id', id).select().single();
+        if (error) throw error;
+        return data;
+      },
+      async get(id) {
+        const { data } = await supabase.from('requests').select('*').eq('id', id).single();
+        return data;
+      }
     }
   };
 }

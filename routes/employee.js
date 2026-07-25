@@ -278,4 +278,57 @@ router.get('/my-salary', async (req, res) => {
   }
 });
 
+// Submit a request (leave, permission, mission)
+router.post('/requests', async (req, res) => {
+  const db = getDb();
+  try {
+    const { type, date_from, date_to, reason } = req.body;
+    if (!type || !date_from) return res.status(400).json({ error: 'نوع الطلب وتاريخ البداية مطلوبين' });
+    if (!['leave', 'permission', 'mission'].includes(type)) return res.status(400).json({ error: 'نوع طلب غير صحيح' });
+    
+    // Check if user has a pending request
+    const existing = await db.requests.getByUser(req.user.id);
+    const pending = existing.find(r => r.status === 'pending');
+    if (pending) return res.status(400).json({ error: 'لديك طلب معلق بالفعل' });
+    
+    const request = await db.requests.create({
+      user_id: req.user.id, type, date_from, date_to: date_to || date_from, reason: reason || null
+    });
+    res.json({ message: 'تم إرسال الطلب بنجاح', request });
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في إرسال الطلب: ' + err.message });
+  }
+});
+
+// Get my requests
+router.get('/my-requests', async (req, res) => {
+  const db = getDb();
+  try {
+    const requests = await db.requests.getByUser(req.user.id);
+    const users = await db.users.getAll();
+    const userMap = {};
+    users.forEach(u => { userMap[u.id] = u; });
+    const enriched = requests.map(r => ({
+      ...r,
+      reviewer_name: r.reviewed_by && userMap[r.reviewed_by] ? userMap[r.reviewed_by].name : null
+    }));
+    res.json(enriched);
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في جلب الطلبات' });
+  }
+});
+
+// Get my department info
+router.get('/my-department', async (req, res) => {
+  const db = getDb();
+  try {
+    const user = await db.users.get(req.user.id);
+    if (!user || !user.department_id) return res.json(null);
+    const dept = await db.departments.get(user.department_id);
+    res.json(dept);
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في جلب بيانات القسم' });
+  }
+});
+
 module.exports = router;
