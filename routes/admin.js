@@ -3,10 +3,10 @@ const { getDb } = require('../database');
 
 const router = express.Router();
 
-router.get('/location', (req, res) => {
+router.get('/location', async (req, res) => {
   const db = getDb();
   try {
-    const location = db.company_location.get();
+    const location = await db.company_location.get();
     if (!location) {
       return res.status(404).json({ error: 'لم يتم تعيين موقع الشركة بعد' });
     }
@@ -16,65 +16,66 @@ router.get('/location', (req, res) => {
   }
 });
 
-router.post('/location', (req, res) => {
+router.post('/location', async (req, res) => {
   const db = getDb();
   try {
     const { latitude, longitude, radius } = req.body;
     if (!latitude || !longitude) {
       return res.status(400).json({ error: 'خط العرض وخط الطول مطلوبين' });
     }
-    db.company_location.set({ latitude, longitude, radius: radius || 100, set_by: req.user.id });
+    await db.company_location.set({ latitude, longitude, radius: radius || 100, set_by: req.user.id });
     res.json({ message: 'تم تحديث موقع الشركة بنجاح' });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في حفظ الموقع' });
   }
 });
 
-router.get('/settings', (req, res) => {
+router.get('/settings', async (req, res) => {
   const db = getDb();
   try {
-    const settings = db.work_settings.get();
+    const settings = await db.work_settings.get();
     res.json(settings);
   } catch (err) {
     res.status(500).json({ error: 'خطأ في جلب الإعدادات' });
   }
 });
 
-router.put('/settings', (req, res) => {
+router.put('/settings', async (req, res) => {
   const db = getDb();
   try {
     const { work_start_hour, work_end_hour } = req.body;
     if (!work_start_hour || !work_end_hour) {
       return res.status(400).json({ error: 'ساعات العمل مطلوبة' });
     }
-    db.work_settings.update({ work_start_hour, work_end_hour });
+    await db.work_settings.update({ work_start_hour, work_end_hour });
     res.json({ message: 'تم تحديث ساعات العمل بنجاح' });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تحديث الإعدادات' });
   }
 });
 
-router.get('/employees', (req, res) => {
+router.get('/employees', async (req, res) => {
   const db = getDb();
   try {
-    const employees = db.users.getEmployees().map(u => ({
+    const employees = await db.users.getEmployees();
+    const mapped = employees.map(u => ({
       id: u.id, name: u.name, phone: u.phone, email: u.email, role: u.role, created_at: u.created_at
     }));
-    res.json(employees);
+    res.json(mapped);
   } catch (err) {
     res.status(500).json({ error: 'خطأ في جلب الموظفين' });
   }
 });
 
-router.get('/employees/:id', (req, res) => {
+router.get('/employees/:id', async (req, res) => {
   const db = getDb();
   try {
     const id = parseInt(req.params.id);
-    const user = db.users.get(id);
+    const user = await db.users.get(id);
     if (!user || user.role !== 'employee') return res.status(404).json({ error: 'الموظف غير موجود' });
 
-    const attendance = db.attendance.getByUser(id).slice(0, 30);
-    const evaluations = db.daily_evaluations.getByUser(id).slice(0, 30);
+    const attendance = (await db.attendance.getByUser(id)).slice(0, 30);
+    const evaluations = (await db.daily_evaluations.getByUser(id)).slice(0, 30);
 
     res.json({ id: user.id, name: user.name, phone: user.phone, email: user.email, role: user.role, created_at: user.created_at, attendance, evaluations });
   } catch (err) {
@@ -82,16 +83,16 @@ router.get('/employees/:id', (req, res) => {
   }
 });
 
-router.delete('/employees/:id', (req, res) => {
+router.delete('/employees/:id', async (req, res) => {
   const db = getDb();
   try {
     const id = parseInt(req.params.id);
-    const user = db.users.get(id);
+    const user = await db.users.get(id);
     if (!user || user.role !== 'employee') return res.status(404).json({ error: 'الموظف غير موجود' });
 
-    db.daily_evaluations.removeByUser(id);
-    db.attendance.removeByUser(id);
-    db.users.remove(id);
+    await db.daily_evaluations.removeByUser(id);
+    await db.attendance.removeByUser(id);
+    await db.users.remove(id);
 
     res.json({ message: 'تم حذف الموظف بنجاح' });
   } catch (err) {
@@ -99,20 +100,20 @@ router.delete('/employees/:id', (req, res) => {
   }
 });
 
-router.get('/attendance/all', (req, res) => {
+router.get('/attendance/all', async (req, res) => {
   const db = getDb();
   try {
     const { date, month, year } = req.query;
     let records;
     if (date) {
-      records = db.attendance.getAllByDate(date);
+      records = await db.attendance.getAllByDate(date);
     } else if (month && year) {
-      records = db.attendance.getAllByMonth(parseInt(month), parseInt(year));
+      records = await db.attendance.getAllByMonth(parseInt(month), parseInt(year));
     } else {
-      records = db.attendance.getAll();
+      records = await db.attendance.getAll();
     }
 
-    const users = db.users.getAll();
+    const users = await db.users.getAll();
     const userMap = {};
     users.forEach(u => { userMap[u.id] = u; });
 
@@ -129,27 +130,28 @@ router.get('/attendance/all', (req, res) => {
   }
 });
 
-router.get('/employees-stats', (req, res) => {
+router.get('/employees-stats', async (req, res) => {
   const db = getDb();
   try {
-    const employees = db.users.getEmployees();
-    const stats = employees.map(emp => {
-      const attStats = db.attendance.getUserStats(emp.id);
-      const evalSummary = db.daily_evaluations.getSummary(emp.id);
-      return {
+    const employees = await db.users.getEmployees();
+    const stats = [];
+    for (const emp of employees) {
+      const attStats = await db.attendance.getUserStats(emp.id);
+      const evalSummary = await db.daily_evaluations.getSummary(emp.id);
+      stats.push({
         id: emp.id, name: emp.name, phone: emp.phone, email: emp.email,
         ...attStats,
         avg_evaluation: evalSummary.avg_score,
         total_late_minutes: evalSummary.total_late_minutes
-      };
-    });
+      });
+    }
     res.json(stats);
   } catch (err) {
     res.status(500).json({ error: 'خطأ في جلب الإحصائيات' });
   }
 });
 
-router.post('/attendance/manual', (req, res) => {
+router.post('/attendance/manual', async (req, res) => {
   const db = getDb();
   try {
     const { user_id, date, check_in_time, check_out_time, status, notes } = req.body;
@@ -157,16 +159,16 @@ router.post('/attendance/manual', (req, res) => {
       return res.status(400).json({ error: 'معرف الموظف والتاريخ مطلوبين' });
     }
 
-    const existing = db.attendance.get(parseInt(user_id), date);
+    const existing = await db.attendance.get(parseInt(user_id), date);
     if (existing) {
-      db.attendance.update(parseInt(user_id), date, {
+      await db.attendance.update(parseInt(user_id), date, {
         check_in_time: check_in_time || existing.check_in_time,
         check_out_time: check_out_time || existing.check_out_time,
         status: status || existing.status,
         notes: notes || existing.notes
       });
     } else {
-      db.attendance.create({
+      await db.attendance.create({
         user_id: parseInt(user_id), date,
         check_in_time: check_in_time || null,
         check_out_time: check_out_time || null,

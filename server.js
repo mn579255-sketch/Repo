@@ -11,6 +11,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 initDatabase();
+console.log('Supabase connected');
 
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');

@@ -55,17 +55,17 @@ function calculateEvaluation(lateMinutes, earlyLeaveMinutes, totalWorkMinutes) {
   return Math.max(0, Math.round(score * 100) / 100);
 }
 
-router.get('/location', (req, res) => {
+router.get('/location', async (req, res) => {
   const db = getDb();
   try {
-    const location = db.company_location.get();
+    const location = await db.company_location.get();
     res.json(location || null);
   } catch (err) {
     res.status(500).json({ error: 'خطأ في جلب الموقع' });
   }
 });
 
-router.post('/checkin', (req, res) => {
+router.post('/checkin', async (req, res) => {
   const db = getDb();
   try {
     const { latitude, longitude } = req.body;
@@ -73,7 +73,7 @@ router.post('/checkin', (req, res) => {
       return res.status(400).json({ error: 'الموقع الجغرافي مطلوب' });
     }
 
-    const location = db.company_location.get();
+    const location = await db.company_location.get();
     if (!location) {
       return res.status(400).json({ error: 'لم يتم تعيين موقع الشركة بعد - يرجى مراجعة الأدمن' });
     }
@@ -92,7 +92,7 @@ router.post('/checkin', (req, res) => {
     const nowISO = now.toISOString();
     const currentTime = now.toTimeString().slice(0, 5);
 
-    const settings = db.work_settings.get();
+    const settings = await db.work_settings.get();
     const workStart = settings.work_start_hour || '09:00';
 
     let status = 'present';
@@ -100,13 +100,13 @@ router.post('/checkin', (req, res) => {
       status = 'late';
     }
 
-    const existing = db.attendance.get(req.user.id, today);
+    const existing = await db.attendance.get(req.user.id, today);
 
     if (existing && existing.check_in_time) {
       return res.status(400).json({ error: 'تم تسجيل حضورك اليوم بالفعل', checkInTime: existing.check_in_time });
     }
 
-    db.attendance.upsert(req.user.id, today, {
+    await db.attendance.upsert(req.user.id, today, {
       check_in_time: nowISO,
       check_in_lat: latitude,
       check_in_lng: longitude,
@@ -122,7 +122,7 @@ router.post('/checkin', (req, res) => {
     if (lateMinutes > 0) {
       const totalWorkMinutes = calculateWorkMinutes(settings.work_start_hour, settings.work_end_hour);
       const evalScore = calculateEvaluation(lateMinutes, 0, totalWorkMinutes);
-      db.daily_evaluations.upsert(req.user.id, today, {
+      await db.daily_evaluations.upsert(req.user.id, today, {
         evaluation_score: evalScore,
         total_late_minutes: lateMinutes,
         early_leave_minutes: 0,
@@ -143,7 +143,7 @@ router.post('/checkin', (req, res) => {
   }
 });
 
-router.post('/checkout', (req, res) => {
+router.post('/checkout', async (req, res) => {
   const db = getDb();
   try {
     const { latitude, longitude } = req.body;
@@ -152,7 +152,7 @@ router.post('/checkout', (req, res) => {
     const nowISO = now.toISOString();
     const currentTime = now.toTimeString().slice(0, 5);
 
-    const existing = db.attendance.get(req.user.id, today);
+    const existing = await db.attendance.get(req.user.id, today);
     if (!existing || !existing.check_in_time) {
       return res.status(400).json({ error: 'لم تسجل حضورك اليوم بعد' });
     }
@@ -160,13 +160,13 @@ router.post('/checkout', (req, res) => {
       return res.status(400).json({ error: 'تم تسجيل انصرافك بالفعل اليوم', checkOutTime: existing.check_out_time });
     }
 
-    db.attendance.update(req.user.id, today, {
+    await db.attendance.update(req.user.id, today, {
       check_out_time: nowISO,
       check_out_lat: latitude || null,
       check_out_lng: longitude || null
     });
 
-    const settings = db.work_settings.get();
+    const settings = await db.work_settings.get();
     const workEnd = settings.work_end_hour || '17:00';
     const earlyLeaveMinutes = currentTime < workEnd ? calculateEarlyLeaveMinutes(currentTime, workEnd) : 0;
 
@@ -174,7 +174,7 @@ router.post('/checkout', (req, res) => {
       const totalWorkMinutes = calculateWorkMinutes(settings.work_start_hour, settings.work_end_hour);
       const lateMinutes = existing.status === 'late' ? calculateLateMinutes(settings.work_start_hour, new Date(existing.check_in_time).toTimeString().slice(0, 5)) : 0;
       const evalScore = calculateEvaluation(lateMinutes, earlyLeaveMinutes, totalWorkMinutes);
-      db.daily_evaluations.upsert(req.user.id, today, {
+      await db.daily_evaluations.upsert(req.user.id, today, {
         evaluation_score: evalScore,
         total_late_minutes: lateMinutes,
         early_leave_minutes: earlyLeaveMinutes,
@@ -192,15 +192,15 @@ router.post('/checkout', (req, res) => {
   }
 });
 
-router.get('/my-attendance', (req, res) => {
+router.get('/my-attendance', async (req, res) => {
   const db = getDb();
   try {
     const { month, year } = req.query;
     let records;
     if (month && year) {
-      records = db.attendance.getByUserMonth(req.user.id, parseInt(month), parseInt(year));
+      records = await db.attendance.getByUserMonth(req.user.id, parseInt(month), parseInt(year));
     } else {
-      records = db.attendance.getByUser(req.user.id);
+      records = await db.attendance.getByUser(req.user.id);
     }
     res.json(records);
   } catch (err) {
@@ -208,19 +208,19 @@ router.get('/my-attendance', (req, res) => {
   }
 });
 
-router.get('/my-evaluations', (req, res) => {
+router.get('/my-evaluations', async (req, res) => {
   const db = getDb();
   try {
     const { month, year } = req.query;
     let evaluations;
     if (month && year) {
-      evaluations = db.daily_evaluations.getByUserMonth(req.user.id, parseInt(month), parseInt(year));
+      evaluations = await db.daily_evaluations.getByUserMonth(req.user.id, parseInt(month), parseInt(year));
     } else {
-      evaluations = db.daily_evaluations.getByUser(req.user.id);
+      evaluations = await db.daily_evaluations.getByUser(req.user.id);
     }
 
-    const summary = db.daily_evaluations.getSummary(req.user.id);
-    const attStats = db.attendance.getUserStats(req.user.id);
+    const summary = await db.daily_evaluations.getSummary(req.user.id);
+    const attStats = await db.attendance.getUserStats(req.user.id);
 
     res.json({ evaluations, summary: { ...summary, ...attStats } });
   } catch (err) {
@@ -228,11 +228,11 @@ router.get('/my-evaluations', (req, res) => {
   }
 });
 
-router.get('/today-status', (req, res) => {
+router.get('/today-status', async (req, res) => {
   const db = getDb();
   try {
     const today = new Date().toISOString().split('T')[0];
-    const attendance = db.attendance.get(req.user.id, today);
+    const attendance = await db.attendance.get(req.user.id, today);
     res.json(attendance || { checkedIn: false, date: today });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في جلب حالة اليوم' });

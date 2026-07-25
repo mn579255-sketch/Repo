@@ -6,19 +6,20 @@ const { SECRET } = require('../middleware/auth');
 
 const router = express.Router();
 
-router.post('/register', (req, res) => {
+router.post('/register', async (req, res) => {
   const db = getDb();
   try {
     const { name, phone, email, password } = req.body;
     if (!name || !phone || !email || !password) {
       return res.status(400).json({ error: 'جميع الحقول مطلوبة' });
     }
-    const existingUser = db.users.getByPhone(phone) || db.users.getByEmail(email);
-    if (existingUser) {
+    const existingByPhone = await db.users.getByPhone(phone);
+    const existingByEmail = await db.users.getByEmail(email);
+    if (existingByPhone || existingByEmail) {
       return res.status(400).json({ error: 'رقم الموبايل أو الإيميل مسجل بالفعل' });
     }
-    const hashedPassword = bcrypt.hashSync(password, 10);
-    const user = db.users.create({
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await db.users.create({
       name, phone, email, password: hashedPassword, role: 'employee'
     });
     const token = jwt.sign(
@@ -32,18 +33,19 @@ router.post('/register', (req, res) => {
   }
 });
 
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const db = getDb();
   try {
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'اسم المستخدم وكلمة المرور مطلوبين' });
     }
-    const user = db.users.getByLogin(email);
+    const user = await db.users.getByLogin(email);
     if (!user) {
       return res.status(401).json({ error: 'المستخدم غير مسجل' });
     }
-    if (!bcrypt.compareSync(password, user.password)) {
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) {
       return res.status(401).json({ error: 'كلمة المرور غير صحيحة' });
     }
     const token = jwt.sign(
@@ -61,7 +63,7 @@ router.post('/login', (req, res) => {
   }
 });
 
-router.get('/me', (req, res) => {
+router.get('/me', async (req, res) => {
   const db = getDb();
   try {
     const authHeader = req.headers['authorization'];
@@ -69,7 +71,7 @@ router.get('/me', (req, res) => {
     if (!token) return res.status(401).json({ error: 'غير مصرح' });
 
     const decoded = jwt.verify(token, SECRET);
-    const user = db.users.get(decoded.id);
+    const user = await db.users.get(decoded.id);
     if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
     res.json({ id: user.id, name: user.name, phone: user.phone, email: user.email, role: user.role, created_at: user.created_at });
   } catch (err) {
