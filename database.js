@@ -3,7 +3,15 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
-const DB_PATH = path.join(__dirname, 'attendance.db');
+let DB_PATH;
+try {
+  const testPath = path.join(__dirname, '_test_write');
+  fs.writeFileSync(testPath, 'test');
+  fs.unlinkSync(testPath);
+  DB_PATH = path.join(__dirname, 'attendance.db');
+} catch {
+  DB_PATH = path.join('/tmp', 'attendance.db');
+}
 
 let sqlDb = null;
 

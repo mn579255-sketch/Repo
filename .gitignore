@@ -3,3 +3,5 @@ attendance.db
 attendance.db-wal
 attendance.db-shm
 .env
+
+.vercel
