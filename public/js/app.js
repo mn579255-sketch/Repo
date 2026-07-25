@@ -609,6 +609,8 @@ function renderEmployeeDashboard() {
         <button class="nav-item" onclick="showEmpView('attendance', this)">${Icons.attendance} سجلات الحضور</button>
         <button class="nav-item" onclick="showEmpView('evaluation', this)">${Icons.stats} تقييمي</button>
         <button class="nav-item" onclick="showEmpView('salary', this)">${Icons.money} راتبي</button>
+        <div class="section-title">حسابي</div>
+        <button class="nav-item" onclick="showEmpView('profile', this)">${Icons.edit} بياناتي</button>
       </nav>
       <main class="content-area" id="empContent"></main>
     </div>`;
@@ -625,6 +627,7 @@ function showEmpView(view, btn) {
     case 'attendance': loadEmpAttendance(content); break;
     case 'evaluation': loadEmpEvaluation(content); break;
     case 'salary': loadEmpSalary(content); break;
+    case 'profile': loadEmpProfile(content); break;
   }
 }
 
@@ -757,6 +760,44 @@ async function loadEmpSalary(el) {
       <div class="card" style="padding:16px;color:var(--gray-500);font-size:0.8125rem">
         <p><strong>ملاحظة:</strong> الراتب يُقسم على 30 يوم × 8 ساعات = 240 ساعة شهرياً. كل دقيقة تأخير أو انصراف مبكر تُخصم مرتين من الراتب.</p>
       </div>`;
+  } catch (err) { el.innerHTML = `<div class="empty-state"><p>خطأ: ${err.message}</p></div>`; }
+}
+
+async function loadEmpProfile(el) {
+  el.innerHTML = `<div class="spinner"></div>`;
+  try {
+    const [userData, depts] = await Promise.all([api('/auth/me'), api('/employee/departments').catch(() => [])]);
+
+    el.innerHTML = `<div class="page-header"><h2>بياناتي الشخصية</h2><p>تعديل القسم والراتب</p></div>
+      <div class="card">
+        <form id="profileForm">
+          <div class="form-group"><label>الاسم</label><input type="text" value="${userData.name}" disabled style="background:var(--gray-50)"></div>
+          <div class="form-group"><label>البريد الإلكتروني</label><input type="text" value="${userData.email}" disabled style="background:var(--gray-50)"></div>
+          <div class="form-group"><label>رقم الموبايل</label><input type="text" value="${userData.phone}" disabled style="background:var(--gray-50)"></div>
+          <div class="form-group"><label>القسم</label><select id="myDept"><option value="">اختر القسم</option>${depts.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}</select></div>
+          <div class="form-group"><label>الراتب الشهري (ج.م)</label><input type="number" id="mySalary" min="0" step="100" placeholder="أدخل راتبك الشهري"></div>
+          <button type="submit" class="btn btn-primary" style="width:auto">${Icons.check} حفظ البيانات</button>
+        </form>
+      </div>`;
+
+    api('/employee/my-salary').then(s => {
+      if (s.salary) document.getElementById('mySalary').value = s.salary;
+    });
+
+    if (userData.department_id) document.getElementById('myDept').value = userData.department_id;
+    if (userData.salary) document.getElementById('mySalary').value = userData.salary;
+
+    document.getElementById('profileForm').onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const body = {
+          department_id: document.getElementById('myDept').value || null,
+          salary: parseFloat(document.getElementById('mySalary').value) || 0
+        };
+        const result = await api('/employee/profile', { method: 'PUT', body: JSON.stringify(body) });
+        showToast(result.message, 'success');
+      } catch (err) { showToast(err.message, 'error'); }
+    };
   } catch (err) { el.innerHTML = `<div class="empty-state"><p>خطأ: ${err.message}</p></div>`; }
 }
 
