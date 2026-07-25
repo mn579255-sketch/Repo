@@ -6,7 +6,7 @@ const router = express.Router();
 router.get('/location', (req, res) => {
   const db = getDb();
   try {
-    const location = db.prepare('SELECT * FROM company_location ORDER BY id DESC LIMIT 1').get();
+    const location = db.company_location.get();
     if (!location) {
       return res.status(404).json({ error: 'لم يتم تعيين موقع الشركة بعد' });
     }
@@ -23,16 +23,7 @@ router.post('/location', (req, res) => {
     if (!latitude || !longitude) {
       return res.status(400).json({ error: 'خط العرض وخط الطول مطلوبين' });
     }
-    const existing = db.prepare('SELECT id FROM company_location LIMIT 1').get();
-    if (existing) {
-      db.prepare('UPDATE company_location SET latitude = ?, longitude = ?, radius = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(
-        latitude, longitude, radius || 100, existing.id
-      );
-    } else {
-      db.prepare('INSERT INTO company_location (latitude, longitude, radius, set_by) VALUES (?, ?, ?, ?)').run(
-        latitude, longitude, radius || 100, req.user.id
-      );
-    }
+    db.company_location.set({ latitude, longitude, radius: radius || 100, set_by: req.user.id });
     res.json({ message: 'تم تحديث موقع الشركة بنجاح' });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في حفظ الموقع' });
@@ -42,8 +33,8 @@ router.post('/location', (req, res) => {
 router.get('/settings', (req, res) => {
   const db = getDb();
   try {
-    const settings = db.prepare('SELECT * FROM work_settings WHERE id = 1').get();
-    res.json(settings || { work_start_hour: '09:00', work_end_hour: '17:00' });
+    const settings = db.work_settings.get();
+    res.json(settings);
   } catch (err) {
     res.status(500).json({ error: 'خطأ في جلب الإعدادات' });
   }
@@ -56,9 +47,7 @@ router.put('/settings', (req, res) => {
     if (!work_start_hour || !work_end_hour) {
       return res.status(400).json({ error: 'ساعات العمل مطلوبة' });
     }
-    db.prepare('UPDATE work_settings SET work_start_hour = ?, work_end_hour = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1').run(
-      work_start_hour, work_end_hour
-    );
+    db.work_settings.update({ work_start_hour, work_end_hour });
     res.json({ message: 'تم تحديث ساعات العمل بنجاح' });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تحديث الإعدادات' });
@@ -68,7 +57,9 @@ router.put('/settings', (req, res) => {
 router.get('/employees', (req, res) => {
   const db = getDb();
   try {
-    const employees = db.prepare('SELECT id, name, phone, email, role, created_at FROM users WHERE role = ?').all('employee');
+    const employees = db.users.getEmployees().map(u => ({
+      id: u.id, name: u.name, phone: u.phone, email: u.email, role: u.role, created_at: u.created_at
+    }));
     res.json(employees);
   } catch (err) {
     res.status(500).json({ error: 'خطأ في جلب الموظفين' });
@@ -78,13 +69,14 @@ router.get('/employees', (req, res) => {
 router.get('/employees/:id', (req, res) => {
   const db = getDb();
   try {
-    const employee = db.prepare('SELECT id, name, phone, email, role, created_at FROM users WHERE id = ? AND role = ?').get(req.params.id, 'employee');
-    if (!employee) return res.status(404).json({ error: 'الموظف غير موجود' });
+    const id = parseInt(req.params.id);
+    const user = db.users.get(id);
+    if (!user || user.role !== 'employee') return res.status(404).json({ error: 'الموظف غير موجود' });
 
-    const attendance = db.prepare('SELECT * FROM attendance WHERE user_id = ? ORDER BY date DESC LIMIT 30').all(req.params.id);
-    const evaluations = db.prepare('SELECT * FROM daily_evaluations WHERE user_id = ? ORDER BY date DESC LIMIT 30').all(req.params.id);
+    const attendance = db.attendance.getByUser(id).slice(0, 30);
+    const evaluations = db.daily_evaluations.getByUser(id).slice(0, 30);
 
-    res.json({ ...employee, attendance, evaluations });
+    res.json({ id: user.id, name: user.name, phone: user.phone, email: user.email, role: user.role, created_at: user.created_at, attendance, evaluations });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في جلب بيانات الموظف' });
   }
@@ -93,12 +85,13 @@ router.get('/employees/:id', (req, res) => {
 router.delete('/employees/:id', (req, res) => {
   const db = getDb();
   try {
-    const employee = db.prepare('SELECT id FROM users WHERE id = ? AND role = ?').get(req.params.id, 'employee');
-    if (!employee) return res.status(404).json({ error: 'الموظف غير موجود' });
+    const id = parseInt(req.params.id);
+    const user = db.users.get(id);
+    if (!user || user.role !== 'employee') return res.status(404).json({ error: 'الموظف غير موجود' });
 
-    db.prepare('DELETE FROM daily_evaluations WHERE user_id = ?').run(req.params.id);
-    db.prepare('DELETE FROM attendance WHERE user_id = ?').run(req.params.id);
-    db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+    db.daily_evaluations.removeByUser(id);
+    db.attendance.removeByUser(id);
+    db.users.remove(id);
 
     res.json({ message: 'تم حذف الموظف بنجاح' });
   } catch (err) {
@@ -110,36 +103,27 @@ router.get('/attendance/all', (req, res) => {
   const db = getDb();
   try {
     const { date, month, year } = req.query;
-    let query = `
-      SELECT a.*, u.name as employee_name, u.phone as employee_phone, u.email as employee_email
-      FROM attendance a
-      JOIN users u ON a.user_id = u.id
-      WHERE 1=1
-    `;
-    const params = [];
-
+    let records;
     if (date) {
-      query += ' AND a.date = ?';
-      params.push(date);
-    }
-    if (month && year) {
-      query += ' AND printf("%02d", CAST(a.date AS INTEGER) % 100) = ?';
-      const paddedMonth = month.toString().padStart(2, '0');
-      const searchPattern = `%-` + paddedMonth + `-%`;
-      query = `
-        SELECT a.*, u.name as employee_name, u.phone as employee_phone, u.email as employee_email
-        FROM attendance a
-        JOIN users u ON a.user_id = u.id
-        WHERE a.date LIKE ?
-      `;
-      params.length = 0;
-      params.push(`%-${paddedMonth}-${year}%`);
+      records = db.attendance.getAllByDate(date);
+    } else if (month && year) {
+      records = db.attendance.getAllByMonth(parseInt(month), parseInt(year));
+    } else {
+      records = db.attendance.getAll();
     }
 
-    query += ' ORDER BY a.date DESC, a.check_in_time DESC';
+    const users = db.users.getAll();
+    const userMap = {};
+    users.forEach(u => { userMap[u.id] = u; });
 
-    const attendance = db.prepare(query).all(...params);
-    res.json(attendance);
+    const enriched = records.map(r => ({
+      ...r,
+      employee_name: userMap[r.user_id] ? userMap[r.user_id].name : 'غير معروف',
+      employee_phone: userMap[r.user_id] ? userMap[r.user_id].phone : '',
+      employee_email: userMap[r.user_id] ? userMap[r.user_id].email : ''
+    }));
+
+    res.json(enriched);
   } catch (err) {
     res.status(500).json({ error: 'خطأ في جلب بيانات الحضور' });
   }
@@ -148,32 +132,15 @@ router.get('/attendance/all', (req, res) => {
 router.get('/employees-stats', (req, res) => {
   const db = getDb();
   try {
-    const employees = db.prepare('SELECT id, name, phone, email FROM users WHERE role = ?').all('employee');
+    const employees = db.users.getEmployees();
     const stats = employees.map(emp => {
-      const attStats = db.prepare(`
-        SELECT 
-          COUNT(*) as total_days,
-          SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_days,
-          SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late_days,
-          SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_days
-        FROM attendance WHERE user_id = ?
-      `).get(emp.id);
-
-      const evalStats = db.prepare(`
-        SELECT 
-          COALESCE(AVG(evaluation_score), 100) as avg_evaluation,
-          COALESCE(SUM(total_late_minutes), 0) as total_late_minutes
-        FROM daily_evaluations WHERE user_id = ?
-      `).get(emp.id);
-
+      const attStats = db.attendance.getUserStats(emp.id);
+      const evalSummary = db.daily_evaluations.getSummary(emp.id);
       return {
-        ...emp,
-        total_days: attStats.total_days || 0,
-        present_days: attStats.present_days || 0,
-        late_days: attStats.late_days || 0,
-        absent_days: attStats.absent_days || 0,
-        avg_evaluation: evalStats.avg_evaluation || 100,
-        total_late_minutes: evalStats.total_late_minutes || 0
+        id: emp.id, name: emp.name, phone: emp.phone, email: emp.email,
+        ...attStats,
+        avg_evaluation: evalSummary.avg_score,
+        total_late_minutes: evalSummary.total_late_minutes
       };
     });
     res.json(stats);
@@ -190,15 +157,24 @@ router.post('/attendance/manual', (req, res) => {
       return res.status(400).json({ error: 'معرف الموظف والتاريخ مطلوبين' });
     }
 
-    const existing = db.prepare('SELECT id FROM attendance WHERE user_id = ? AND date = ?').get(user_id, date);
+    const existing = db.attendance.get(parseInt(user_id), date);
     if (existing) {
-      db.prepare('UPDATE attendance SET check_in_time = ?, check_out_time = ?, status = ?, notes = ? WHERE user_id = ? AND date = ?').run(
-        check_in_time || null, check_out_time || null, status || 'present', notes || null, user_id, date
-      );
+      db.attendance.update(parseInt(user_id), date, {
+        check_in_time: check_in_time || existing.check_in_time,
+        check_out_time: check_out_time || existing.check_out_time,
+        status: status || existing.status,
+        notes: notes || existing.notes
+      });
     } else {
-      db.prepare('INSERT INTO attendance (user_id, date, check_in_time, check_out_time, status, notes) VALUES (?, ?, ?, ?, ?, ?)').run(
-        user_id, date, check_in_time || null, check_out_time || null, status || 'present', notes || null
-      );
+      db.attendance.create({
+        user_id: parseInt(user_id), date,
+        check_in_time: check_in_time || null,
+        check_out_time: check_out_time || null,
+        check_in_lat: null, check_in_lng: null,
+        check_out_lat: null, check_out_lng: null,
+        status: status || 'present',
+        notes: notes || null
+      });
     }
 
     res.json({ message: 'تم تحديث سجل الحضور يدوياً بنجاح' });
