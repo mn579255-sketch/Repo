@@ -106,7 +106,7 @@ router.get('/location', async (req, res) => {
 router.post('/checkin', async (req, res) => {
   const db = getDb();
   try {
-    const { latitude, longitude } = req.body;
+    const { latitude, longitude, address } = req.body;
     if (!latitude || !longitude) return res.status(400).json({ error: 'الموقع الجغرافي مطلوب' });
 
     const location = await db.company_location.get();
@@ -135,7 +135,7 @@ router.post('/checkin', async (req, res) => {
     }
 
     await db.attendance.upsert(req.user.id, today, {
-      check_in_time: nowISO, check_in_lat: latitude, check_in_lng: longitude, status,
+      check_in_time: nowISO, check_in_lat: latitude, check_in_lng: longitude, check_in_address: address || null, status,
       check_out_time: existing ? existing.check_out_time : null,
       check_out_lat: existing ? existing.check_out_lat : null,
       check_out_lng: existing ? existing.check_out_lng : null,
@@ -159,7 +159,7 @@ router.post('/checkin', async (req, res) => {
 router.post('/checkout', async (req, res) => {
   const db = getDb();
   try {
-    const { latitude, longitude, reason } = req.body;
+    const { latitude, longitude, address, reason } = req.body;
     const now = new Date();
     const today = now.toISOString().split('T')[0];
     const nowISO = now.toISOString();
@@ -188,7 +188,8 @@ router.post('/checkout', async (req, res) => {
         checkout_date: today,
         checkout_time: nowISO,
         checkout_lat: latitude,
-        checkout_lng: longitude
+        checkout_lng: longitude,
+        checkout_address: address || null
       });
       return res.json({ message: 'تم إرسال طلب الانصراف المبكر للموافقة', pending: true });
     }
@@ -197,6 +198,7 @@ router.post('/checkout', async (req, res) => {
     const earlyMinutes = calculateEarlyLeaveMinutes(currentTime, workEnd);
     await db.attendance.update(req.user.id, today, {
       check_out_time: nowISO, check_out_lat: latitude || null, check_out_lng: longitude || null,
+      check_out_address: address || null,
       overtime_minutes: overtimeMinutes
     });
 

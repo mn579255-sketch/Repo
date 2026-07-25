@@ -13,6 +13,9 @@ async function run() {
   await c.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS birth_date DATE");
   await c.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS hire_date DATE");
   await c.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo TEXT");
+  await c.query("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS check_in_address TEXT");
+  await c.query("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS check_out_address TEXT");
+  await c.query("ALTER TABLE requests ADD COLUMN IF NOT EXISTS checkout_address TEXT");
   console.log('Done');
   await c.end();
 }

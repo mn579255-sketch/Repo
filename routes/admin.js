@@ -388,6 +388,7 @@ router.put('/requests/:id', async (req, res) => {
           check_out_time: checkoutTime,
           check_out_lat: request.checkout_lat || null,
           check_out_lng: request.checkout_lng || null,
+          check_out_address: request.checkout_address || null,
           notes: request.reason || 'انصراف مبكر معتمد'
         });
 

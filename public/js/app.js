@@ -15,6 +15,16 @@ async function api(endpoint, options = {}) {
   return data;
 }
 
+async function reverseGeocode(lat, lng) {
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=ar&zoom=18`);
+    const data = await res.json();
+    return data.display_name || `${lat}, ${lng}`;
+  } catch (e) {
+    return `${lat}, ${lng}`;
+  }
+}
+
 function showToast(message, type = 'info') {
   const existing = document.querySelector('.toast');
   if (existing) existing.remove();
@@ -277,21 +287,24 @@ async function loadAdminAttendance(el) {
 
 function renderAttendanceTable(records) {
   if (!records.length) return '<div class="empty-state"><p>لا توجد سجلات في هذا الفترة</p></div>';
-  return `<div class="table-container"><table><thead><tr><th>التاريخ</th><th>الموظف</th><th>القسم</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>الملاحظات</th><th>إجراءات</th></tr></thead><tbody>
-    ${records.map(r => `<tr>
+  window._attRecords = records;
+  return `<div class="table-container"><table><thead><tr><th>التاريخ</th><th>الموظف</th><th>القسم</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>الموقع</th><th>إجراءات</th></tr></thead><tbody>
+    ${records.map((r, i) => `<tr>
       <td>${r.date}</td>
       <td><strong>${r.employee_name}</strong><br><span style="color:var(--gray-400);font-size:0.75rem">${r.employee_phone || ''}</span></td>
       <td><span class="badge badge-present" style="background:#e0e7ff;color:#3730a3;font-size:0.75rem">${r.employee_department || '-'}</span></td>
       <td>${r.check_in_time ? new Date(r.check_in_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '-'}</td>
       <td>${r.check_out_time ? new Date(r.check_out_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '-'}</td>
       <td><span class="badge badge-${r.status}">${r.status === 'present' ? 'حاضر' : r.status === 'late' ? 'متأخر' : r.status === 'absent' ? 'غائب' : r.status}</span></td>
-      <td>${r.notes || '-'}</td>
-      <td><button class="btn btn-outline btn-sm" onclick='showEditAttendanceModal(${JSON.stringify(r).replace(/'/g,"\\'")})'>${Icons.edit}</button></td>
+      <td style="font-size:0.75rem;max-width:180px;word-break:break-word">${r.check_in_address ? `🟢 ${r.check_in_address}` : ''}${r.check_out_address ? `<br>🔴 ${r.check_out_address}` : ''}${!r.check_in_address && !r.check_out_address ? '-' : ''}</td>
+      <td><button class="btn btn-outline btn-sm" onclick="showEditAttendanceModal(${i})">${Icons.edit}</button></td>
     </tr>`).join('')}
   </tbody></table></div>`;
 }
 
-function showEditAttendanceModal(record) {
+function showEditAttendanceModal(idx) {
+  const record = window._attRecords[idx];
+  if (!record) return;
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
@@ -300,6 +313,8 @@ function showEditAttendanceModal(record) {
   overlay.innerHTML = `<div class="modal">
     <h3>تعديل سجل الحضور - ${record.employee_name || ''}</h3>
     <p style="color:var(--gray-500);margin-bottom:12px">التاريخ: ${record.date}</p>
+    ${record.check_in_address ? `<p style="font-size:0.8125rem;color:var(--gray-500);margin-bottom:4px">🟢 موقع الحضور: ${record.check_in_address}</p>` : ''}
+    ${record.check_out_address ? `<p style="font-size:0.8125rem;color:var(--gray-500);margin-bottom:12px">🔴 موقع الانصراف: ${record.check_out_address}</p>` : ''}
     <form id="editAttForm">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div class="form-group"><label>وقت الحضور</label><input type="time" id="editAttCheckIn" value="${checkInVal}"></div>
@@ -456,8 +471,8 @@ async function showEmployeeDetail(id) {
           </div>
         </div>
       </div>
-      ${emp.attendance.length ? `<div class="card"><div class="card-header"><h3>آخر سجلات الحضور</h3></div><div class="table-container"><table><thead><tr><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th></tr></thead><tbody>
-        ${emp.attendance.slice(0, 15).map(a => `<tr><td>${a.date}</td><td>${a.check_in_time ? new Date(a.check_in_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '-'}</td><td>${a.check_out_time ? new Date(a.check_out_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '-'}</td><td><span class="badge badge-${a.status}">${a.status === 'present' ? 'حاضر' : a.status === 'late' ? 'متأخر' : 'غائب'}</span></td></tr>`).join('')}
+      ${emp.attendance.length ? `<div class="card"><div class="card-header"><h3>آخر سجلات الحضور</h3></div><div class="table-container"><table><thead><tr><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>الموقع</th></tr></thead><tbody>
+        ${emp.attendance.slice(0, 15).map(a => `<tr><td>${a.date}</td><td>${a.check_in_time ? new Date(a.check_in_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '-'}</td><td>${a.check_out_time ? new Date(a.check_out_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '-'}</td><td><span class="badge badge-${a.status}">${a.status === 'present' ? 'حاضر' : a.status === 'late' ? 'متأخر' : 'غائب'}</span></td><td style="font-size:0.75rem;max-width:180px;word-break:break-word">${a.check_in_address ? `🟢 ${a.check_in_address}` : ''}${a.check_out_address ? `<br>🔴 ${a.check_out_address}` : ''}${!a.check_in_address && !a.check_out_address ? '-' : ''}</td></tr>`).join('')}
       </tbody></table></div></div>` : ''}`;
   } catch (err) { content.innerHTML = `<div class="empty-state"><p>خطأ: ${err.message}</p></div>`; }
 }
@@ -870,7 +885,9 @@ async function loadEmpToday(el) {
         <div class="status-icon">${isCheckedOut ? '✅' : '🟢'}</div>
         <h3 style="color:${status === 'late' ? 'var(--warning)' : 'var(--success)'}">${status === 'late' ? 'متأخر' : 'حاضر'}</h3>
         <p style="margin-top:8px">وقت الحضور: ${checkInTime}</p>
+        ${todayStatus.check_in_address ? `<p style="margin-top:4px;font-size:0.8125rem;color:var(--gray-400)">📍 ${todayStatus.check_in_address}</p>` : ''}
         ${isCheckedOut ? `<p style="margin-top:4px">وقت الانصراف: ${new Date(todayStatus.check_out_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'})}</p>` : ''}
+        ${isCheckedOut && todayStatus.check_out_address ? `<p style="margin-top:4px;font-size:0.8125rem;color:var(--gray-400)">📍 ${todayStatus.check_out_address}</p>` : ''}
         <div class="action-buttons">${!isCheckedOut ? `<button class="btn btn-danger" onclick="checkOutWithGPS()">${Icons.logout} تسجيل الانصراف</button>` : ''}</div>
       </div>`;
     }
@@ -882,7 +899,13 @@ async function checkInWithGPS() {
   showToast('جاري تحديد موقعك...', 'info');
   if (!navigator.geolocation) { showToast('متصفحك لا يدعم تحديد الموقع', 'error'); return; }
   navigator.geolocation.getCurrentPosition(async (pos) => {
-    try { const result = await api('/employee/checkin', { method: 'POST', body: JSON.stringify({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }) }); showToast(result.message, 'success'); loadEmpToday(document.getElementById('empContent')); } catch (err) { showToast(err.message, 'error'); }
+    try {
+      showToast('جاري جاري تحديد العنوان...', 'info');
+      const address = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+      const result = await api('/employee/checkin', { method: 'POST', body: JSON.stringify({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, address }) });
+      showToast(result.message, 'success');
+      loadEmpToday(document.getElementById('empContent'));
+    } catch (err) { showToast(err.message, 'error'); }
   }, (err) => { showToast('لم يتم السماح بالوصول للموقع: ' + err.message, 'error'); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
 }
 
@@ -891,6 +914,7 @@ async function checkOutWithGPS() {
   if (!navigator.geolocation) { showToast('متصفحك لا يدعم تحديد الموقع', 'error'); return; }
   navigator.geolocation.getCurrentPosition(async (pos) => {
     try {
+      const address = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
       const status = await api('/employee/today-status');
       const settings = await api('/employee/location').catch(() => null);
       const now = new Date();
@@ -901,9 +925,9 @@ async function checkOutWithGPS() {
       const isEarly = currentTime < workEnd;
 
       if (isEarly) {
-        showEarlyCheckoutModal(pos.coords.latitude, pos.coords.longitude);
+        showEarlyCheckoutModal(pos.coords.latitude, pos.coords.longitude, address);
       } else {
-        const result = await api('/employee/checkout', { method: 'POST', body: JSON.stringify({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }) });
+        const result = await api('/employee/checkout', { method: 'POST', body: JSON.stringify({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, address }) });
         showToast(result.message, 'success');
         loadEmpToday(document.getElementById('empContent'));
       }
@@ -911,7 +935,7 @@ async function checkOutWithGPS() {
   }, (err) => { showToast('لم يتم السماح بالوصول للموقع: ' + err.message, 'error'); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
 }
 
-function showEarlyCheckoutModal(lat, lng) {
+function showEarlyCheckoutModal(lat, lng, address) {
   const reasons = [
     'موقف طارئ شخصي',
     '就医 - موعد طبي',
@@ -951,7 +975,7 @@ function showEarlyCheckoutModal(lat, lng) {
     let reason = document.getElementById('earlyReason').value;
     if (reason === 'أخرى') reason = document.getElementById('customReason').value || 'أخرى';
     try {
-      const result = await api('/employee/checkout', { method: 'POST', body: JSON.stringify({ latitude: lat, longitude: lng, reason }) });
+      const result = await api('/employee/checkout', { method: 'POST', body: JSON.stringify({ latitude: lat, longitude: lng, address, reason }) });
       showToast(result.message + (reason ? ' - السبب: ' + reason : ''), 'success');
       overlay.remove();
       loadEmpToday(document.getElementById('empContent'));
@@ -974,8 +998,8 @@ async function loadEmpAttendance(el) {
 
 function renderEmpAttendanceTable(records) {
   if (!records.length) return '<div class="empty-state"><p>لا توجد سجلات في هذا الفترة</p></div>';
-  return `<div class="table-container"><table><thead><tr><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th></tr></thead><tbody>
-    ${records.map(r => `<tr><td>${r.date}</td><td>${r.check_in_time ? new Date(r.check_in_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '-'}</td><td>${r.check_out_time ? new Date(r.check_out_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '-'}</td><td><span class="badge badge-${r.status}">${r.status === 'present' ? 'حاضر' : r.status === 'late' ? 'متأخر' : r.status === 'absent' ? 'غائب' : 'انصراف مبكر'}</span></td></tr>`).join('')}
+  return `<div class="table-container"><table><thead><tr><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>الموقع</th></tr></thead><tbody>
+    ${records.map(r => `<tr><td>${r.date}</td><td>${r.check_in_time ? new Date(r.check_in_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '-'}</td><td>${r.check_out_time ? new Date(r.check_out_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '-'}</td><td><span class="badge badge-${r.status}">${r.status === 'present' ? 'حاضر' : r.status === 'late' ? 'متأخر' : r.status === 'absent' ? 'غائب' : 'انصراف مبكر'}</span></td><td style="font-size:0.75rem;max-width:180px;word-break:break-word">${r.check_in_address ? `🟢 ${r.check_in_address}` : ''}${r.check_out_address ? `<br>🔴 ${r.check_out_address}` : ''}${!r.check_in_address && !r.check_out_address ? '-' : ''}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
 
