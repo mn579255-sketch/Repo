@@ -506,7 +506,7 @@ async function loadAdminSalaryReport(el) {
 
 function renderSalaryReportTable(report) {
   if (!report.length) return '<div class="empty-state"><p>لا يوجد موظفين</p></div>';
-  return `<div class="table-container"><table><thead><tr><th>الموظف</th><th>القسم</th><th>الراتب</th><th>أيام الحضور</th><th>أيام التأخير</th><th>دقائق التأخير</th><th>دقائق الانصراف المبكر</th><th>الخصم</th><th>الراتب الصافي</th></tr></thead><tbody>
+  return `<div class="table-container"><table><thead><tr><th>الموظف</th><th>القسم</th><th>الراتب</th><th>أيام الحضور</th><th>أيام التأخير</th><th>دقائق التأخير</th><th>دقائق الانصراف المبكر</th><th>الإضافي</th><th>الخصم</th><th>الراتب الصافي</th></tr></thead><tbody>
     ${report.map(r => `<tr>
       <td><strong>${r.name}</strong></td>
       <td><span class="badge badge-present" style="background:#e0e7ff;color:#3730a3">${r.department_name}</span></td>
@@ -515,6 +515,7 @@ function renderSalaryReportTable(report) {
       <td><span class="badge badge-late">${r.late_days}</span></td>
       <td>${r.total_late_minutes} دقيقة</td>
       <td>${r.total_early_leave_minutes} دقيقة</td>
+      <td style="color:var(--success);font-weight:600">${r.overtime_hours > 0 ? r.overtime_hours + 'ساعة (+' + fmt(r.overtime_pay) + ')' : '-'}</td>
       <td style="color:var(--danger);font-weight:600">-${fmt(r.deduction_amount)} ج.م</td>
       <td style="color:var(--success);font-weight:700">${fmt(r.net_salary)} ج.م</td>
     </tr>`).join('')}
@@ -829,6 +830,7 @@ async function loadEmpSalary(el) {
         <div class="stat-card"><div class="stat-icon red">${Icons.alert}</div><div class="stat-info"><h4>دقائق التأخير</h4><div class="stat-value">${data.total_late_minutes} د</div></div></div>
         <div class="stat-card"><div class="stat-icon yellow">${Icons.clock}</div><div class="stat-info"><h4>دقائق الانصراف المبكر</h4><div class="stat-value">${data.total_early_leave_minutes} د</div></div></div>
       </div>
+      ${data.overtime_hours > 0 ? `<div class="stats-grid" style="grid-template-columns:1fr"><div class="stat-card"><div class="stat-icon green">${Icons.stats}</div><div class="stat-info"><h4>الإضافي</h4><div class="stat-value">${data.overtime_hours} ساعة (+ ${fmt(data.overtime_pay)} ج.م)</div></div></div></div>` : ''}
       <div class="card">
         <div class="card-header"><h3>${Icons.report} كشف راتب ${monthName}</h3></div>
         <div class="table-container"><table>
@@ -838,12 +840,13 @@ async function loadEmpSalary(el) {
             <tr><td>دقائق الانصراف المبكر (× 2)</td><td style="text-align:left;color:var(--danger)">${data.total_early_leave_minutes} دقيقة</td></tr>
             <tr><td>إجمالي دقائق الخصم</td><td style="text-align:left;color:var(--danger)">${data.total_deduction_minutes} دقيقة</td></tr>
             <tr style="border-top:2px solid var(--gray-200)"><td style="font-weight:700;color:var(--danger)">مبلغ الخصم</td><td style="text-align:left;font-weight:700;color:var(--danger)">-${fmt(data.deduction_amount)} ج.م</td></tr>
+            ${data.overtime_hours > 0 ? `<tr style="background:#dcfce7"><td style="font-weight:700;color:var(--success)">الإضافي (${data.overtime_hours} ساعة × 1.5)</td><td style="text-align:left;font-weight:700;color:var(--success)">+${fmt(data.overtime_pay)} ج.م</td></tr>` : ''}
             <tr style="background:var(--success-light)"><td style="font-weight:700;font-size:1.125rem">الراتب الصافي</td><td style="text-align:left;font-weight:700;font-size:1.125rem;color:var(--success)">${fmt(data.net_salary)} ج.م</td></tr>
           </tbody>
         </table></div>
       </div>
       <div class="card" style="padding:16px;color:var(--gray-500);font-size:0.8125rem">
-        <p><strong>ملاحظة:</strong> الراتب يُقسم على 30 يوم × 8 ساعات = 240 ساعة شهرياً. كل دقيقة تأخير أو انصراف مبكر تُخصم مرتين من الراتب.</p>
+        <p><strong>ملاحظة:</strong> الراتب يُقسم على 30 يوم × 8 ساعات = 240 ساعة شهرياً. كل دقيقة تأخير أو انصراف مبكر تُخصم مرتين من الراتب. كل ساعة إضافي تُحسب بمعامل 1.5.</p>
       </div>`;
   } catch (err) { el.innerHTML = `<div class="empty-state"><p>خطأ: ${err.message}</p></div>`; }
 }

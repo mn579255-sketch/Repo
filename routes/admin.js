@@ -195,6 +195,7 @@ router.get('/salary-report', async (req, res) => {
 
       let totalLateMinutes = 0;
       let totalEarlyLeave = 0;
+      let totalOvertimeHours = 0;
       let lateDays = 0;
       let earlyDays = 0;
       let presentDays = 0;
@@ -214,12 +215,15 @@ router.get('/salary-report', async (req, res) => {
             totalEarlyLeave += earlyMin;
             earlyDays++;
           }
+          const overtimeMin = calculateOvertimeFromTimes(att.check_out_time, '17:00');
+          if (overtimeMin > 0) totalOvertimeHours += overtimeMin / 60;
         }
       }
 
       const totalDeductionMinutes = totalLateMinutes + totalEarlyLeave;
       const deductionAmount = totalDeductionMinutes * perMinuteRate * 2;
-      const netSalary = Math.max(0, salary - deductionAmount);
+      const overtimePay = totalOvertimeHours * hourlyRate * 1.5;
+      const netSalary = Math.max(0, salary - deductionAmount + overtimePay);
 
       report.push({
         id: emp.id,
@@ -234,6 +238,8 @@ router.get('/salary-report', async (req, res) => {
         total_early_leave_minutes: totalEarlyLeave,
         total_deduction_minutes: totalDeductionMinutes,
         deduction_amount: Math.round(deductionAmount * 100) / 100,
+        overtime_hours: Math.round(totalOvertimeHours * 100) / 100,
+        overtime_pay: Math.round(overtimePay * 100) / 100,
         net_salary: Math.round(netSalary * 100) / 100
       });
     }
@@ -261,6 +267,16 @@ function calculateEarlyLeaveFromTimes(checkOutTime, workEnd) {
     const coMinutes = co.getHours() * 60 + co.getMinutes();
     const endMinutes = parseInt(endParts[0]) * 60 + parseInt(endParts[1]);
     return Math.max(0, endMinutes - coMinutes);
+  } catch { return 0; }
+}
+
+function calculateOvertimeFromTimes(checkOutTime, workEnd) {
+  try {
+    const co = new Date(checkOutTime);
+    const endParts = workEnd.split(':');
+    const coMinutes = co.getHours() * 60 + co.getMinutes();
+    const endMinutes = parseInt(endParts[0]) * 60 + parseInt(endParts[1]);
+    return Math.max(0, coMinutes - endMinutes);
   } catch { return 0; }
 }
 

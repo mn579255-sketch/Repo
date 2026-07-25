@@ -34,6 +34,16 @@ function calculateEarlyLeaveMinutes(currentTime, workEnd) {
   } catch { return 0; }
 }
 
+function calculateOvertimeMinutes(currentTime, workEnd) {
+  try {
+    const currentParts = currentTime.split(':');
+    const endParts = workEnd.split(':');
+    const currentMinutes = parseInt(currentParts[0]) * 60 + parseInt(currentParts[1]);
+    const endMinutes = parseInt(endParts[0]) * 60 + parseInt(endParts[1]);
+    return Math.max(0, currentMinutes - endMinutes);
+  } catch { return 0; }
+}
+
 function calculateWorkMinutes(workStart, workEnd) {
   try {
     const startParts = workStart.split(':');
@@ -157,23 +167,24 @@ router.post('/checkout', async (req, res) => {
     if (existing.check_out_time) return res.status(400).json({ error: 'تم تسجيل انصرافك بالفعل اليوم', checkOutTime: existing.check_out_time });
 
     await db.attendance.update(req.user.id, today, {
-      check_out_time: nowISO, check_out_lat: latitude || null, check_out_lng: longitude || null
+      check_out_time: nowISO, check_out_lat: latitude || null, check_out_lng: longitude || null,
+      overtime_minutes: currentTime > workEnd ? calculateOvertimeMinutes(currentTime, workEnd) : 0
     });
 
     const settings = await db.work_settings.get();
     const workEnd = settings.work_end_hour || '17:00';
     const earlyLeaveMinutes = currentTime < workEnd ? calculateEarlyLeaveMinutes(currentTime, workEnd) : 0;
+    const overtimeMinutes = currentTime > workEnd ? calculateOvertimeMinutes(currentTime, workEnd) : 0;
 
-    if (earlyLeaveMinutes > 0) {
-      const totalWorkMinutes = calculateWorkMinutes(settings.work_start_hour, settings.work_end_hour);
-      const lateMinutes = existing.status === 'late' ? calculateLateMinutes(settings.work_start_hour, new Date(existing.check_in_time).toTimeString().slice(0, 5)) : 0;
-      const evalScore = calculateEvaluation(lateMinutes, earlyLeaveMinutes, totalWorkMinutes);
-      await db.daily_evaluations.upsert(req.user.id, today, {
-        evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: earlyLeaveMinutes, notes: null
-      });
-    }
+    const totalWorkMinutes = calculateWorkMinutes(settings.work_start_hour, settings.work_end_hour);
+    const lateMinutes = existing.status === 'late' ? calculateLateMinutes(settings.work_start_hour, new Date(existing.check_in_time).toTimeString().slice(0, 5)) : 0;
+    const evalScore = calculateEvaluation(lateMinutes, earlyLeaveMinutes, totalWorkMinutes);
+    await db.daily_evaluations.upsert(req.user.id, today, {
+      evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: earlyLeaveMinutes,
+      overtime_hours: Math.round(overtimeMinutes / 60 * 100) / 100, notes: null
+    });
 
-    res.json({ message: 'تم تسجيل انصرافك بنجاح', time: nowISO, earlyLeaveMinutes });
+    res.json({ message: 'تم تسجيل انصرافك بنجاح', time: nowISO, earlyLeaveMinutes, overtimeMinutes });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تسجيل الانصراف: ' + err.message });
   }
@@ -238,10 +249,10 @@ router.get('/my-salary', async (req, res) => {
     const month = now.getMonth() + 1;
     const year = now.getFullYear();
     const attendance = await db.attendance.getByUserMonth(req.user.id, month, year);
-    const evaluations = await db.daily_evaluations.getByUserMonth(req.user.id, month, year);
 
     let totalLateMinutes = 0;
     let totalEarlyLeave = 0;
+    let totalOvertimeHours = 0;
     for (const att of attendance) {
       if (att.check_in_time && att.status === 'late') {
         const ci = new Date(att.check_in_time);
@@ -255,12 +266,15 @@ router.get('/my-salary', async (req, res) => {
         const endMin = 17 * 60;
         const early = Math.max(0, endMin - coMin);
         if (early > 0) totalEarlyLeave += early;
+        const overtime = Math.max(0, coMin - endMin);
+        if (overtime > 0) totalOvertimeHours += overtime / 60;
       }
     }
 
     const totalDeductionMinutes = totalLateMinutes + totalEarlyLeave;
     const deductionAmount = totalDeductionMinutes * perMinuteRate * 2;
-    const netSalary = Math.max(0, salary - deductionAmount);
+    const overtimePay = totalOvertimeHours * hourlyRate * 1.5;
+    const netSalary = Math.max(0, salary - deductionAmount + overtimePay);
 
     res.json({
       salary,
@@ -271,6 +285,8 @@ router.get('/my-salary', async (req, res) => {
       total_early_leave_minutes: totalEarlyLeave,
       total_deduction_minutes: totalDeductionMinutes,
       deduction_amount: Math.round(deductionAmount * 100) / 100,
+      overtime_hours: Math.round(totalOvertimeHours * 100) / 100,
+      overtime_pay: Math.round(overtimePay * 100) / 100,
       net_salary: Math.round(netSalary * 100) / 100
     });
   } catch (err) {
