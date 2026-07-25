@@ -343,7 +343,8 @@ router.get('/requests', async (req, res) => {
       ...r,
       employee_name: userMap[r.user_id] ? userMap[r.user_id].name : 'غير معروف',
       employee_department: deptMap[userMap[r.user_id]?.department_id] || 'غير محدد',
-      reviewer_name: r.reviewed_by && userMap[r.reviewed_by] ? userMap[r.reviewed_by].name : null
+      reviewer_name: r.reviewed_by && userMap[r.reviewed_by] ? userMap[r.reviewed_by].name : null,
+      admin_reviewer_name: r.admin_reviewed_by && userMap[r.admin_reviewed_by] ? userMap[r.admin_reviewed_by].name : null
     }));
     res.json(enriched);
   } catch (err) {
@@ -357,12 +358,103 @@ router.put('/requests/:id', async (req, res) => {
   try {
     const { status, review_notes } = req.body;
     if (!['approved', 'rejected'].includes(status)) return res.status(400).json({ error: 'حالة غير صحيحة' });
-    const updated = await db.requests.update(req.params.id, { status, reviewed_by: req.user.id, review_notes: review_notes || null });
+    const request = await db.requests.get(parseInt(req.params.id));
+    if (!request) return res.status(404).json({ error: 'الطلب غير موجود' });
+
+    if (request.type === 'early_leave') {
+      if (status === 'approved') {
+        if (request.reviewed_by === null) {
+          return res.status(400).json({ error: 'الطلب لم يُوافق عليه من مدير القسم بعد' });
+        }
+        const now = new Date();
+        const today = request.checkout_date || now.toISOString().split('T')[0];
+        const checkoutTime = request.checkout_time || now.toISOString();
+
+        await db.attendance.update(request.user_id, today, {
+          check_out_time: checkoutTime,
+          check_out_lat: request.checkout_lat || null,
+          check_out_lng: request.checkout_lng || null,
+          notes: request.reason || 'انصراف مبكر معتمد'
+        });
+
+        const settings = await db.work_settings.get();
+        const workEnd = settings.work_end_hour || '17:00';
+        const coTime = new Date(checkoutTime);
+        const coMin = coTime.getHours() * 60 + coTime.getMinutes();
+        const endMin = parseInt(workEnd.split(':')[0]) * 60 + parseInt(workEnd.split(':')[1]);
+        const earlyMinutes = Math.max(0, endMin - coMin);
+
+        const existing = await db.attendance.get(request.user_id, today);
+        const lateMinutes = existing && existing.status === 'late' && existing.check_in_time
+          ? Math.max(0, (new Date(existing.check_in_time).getHours() * 60 + new Date(existing.check_in_time).getMinutes()) - (parseInt(settings.work_start_hour.split(':')[0]) * 60 + parseInt(settings.work_start_hour.split(':')[1])))
+          : 0;
+        const totalWorkMinutes = parseInt(settings.work_end_hour.split(':')[0]) * 60 + parseInt(settings.work_end_hour.split(':')[1]) - (parseInt(settings.work_start_hour.split(':')[0]) * 60 + parseInt(settings.work_start_hour.split(':')[1]));
+        const evalScore = calculateEarlyLeaveEvaluation(lateMinutes, earlyMinutes, totalWorkMinutes);
+        await db.daily_evaluations.upsert(request.user_id, today, {
+          evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: earlyMinutes,
+          overtime_hours: 0, notes: request.reason
+        });
+
+        await db.requests.update(parseInt(req.params.id), { status: 'approved', admin_reviewed_by: req.user.id, review_notes: review_notes || null });
+        return res.json({ message: 'تمت الموافقة على الانصراف المبكر وتسجيل الانصراف', request: request });
+      } else {
+        await db.requests.update(parseInt(req.params.id), { status: 'rejected', admin_reviewed_by: req.user.id, review_notes: review_notes || null });
+        return res.json({ message: 'تم رفض طلب الانصراف المبكر', request: request });
+      }
+    }
+
+    const updated = await db.requests.update(parseInt(req.params.id), { status, reviewed_by: req.user.id, review_notes: review_notes || null });
     res.json({ message: status === 'approved' ? 'تمت الموافقة على الطلب' : 'تم رفض الطلب', request: updated });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تحديث الطلب: ' + err.message });
   }
 });
+
+// Admin filtered attendance
+router.get('/attendance/filtered', async (req, res) => {
+  const db = getDb();
+  try {
+    const { month, year, user_id, department_id } = req.query;
+    let records;
+    if (month && year) {
+      records = await db.attendance.getAllByMonth(parseInt(month), parseInt(year));
+    } else {
+      records = await db.attendance.getAll();
+    }
+    if (user_id) records = records.filter(r => r.user_id === parseInt(user_id));
+
+    const users = await db.users.getEmployees();
+    const departments = await db.departments.getAll();
+    const userMap = {};
+    users.forEach(u => { userMap[u.id] = u; });
+    const deptMap = {};
+    departments.forEach(d => { deptMap[d.id] = d.name; });
+
+    if (department_id) {
+      const deptUserIds = users.filter(u => u.department_id === parseInt(department_id)).map(u => u.id);
+      records = records.filter(r => deptUserIds.includes(r.user_id));
+    }
+
+    const enriched = records.map(r => ({
+      ...r,
+      employee_name: userMap[r.user_id] ? userMap[r.user_id].name : 'غير معروف',
+      employee_phone: userMap[r.user_id] ? userMap[r.user_id].phone : '',
+      employee_email: userMap[r.user_id] ? userMap[r.user_id].email : '',
+      employee_department_id: userMap[r.user_id] ? userMap[r.user_id].department_id : null,
+      employee_department: deptMap[userMap[r.user_id]?.department_id] || 'غير محدد'
+    }));
+    res.json(enriched);
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في جلب بيانات الحضور' });
+  }
+});
+
+function calculateEarlyLeaveEvaluation(lateMinutes, earlyLeaveMinutes, totalWorkMinutes) {
+  let score = 100;
+  if (lateMinutes > 0) score -= Math.min(lateMinutes / totalWorkMinutes, 1) * 40;
+  if (earlyLeaveMinutes > 0) score -= Math.min(earlyLeaveMinutes / totalWorkMinutes, 1) * 30;
+  return Math.max(0, Math.round(score * 100) / 100);
+}
 
 // Admin edit any employee (allow editing name, email, phone, salary, department_id, role)
 router.put('/employees/:id/edit', async (req, res) => {

@@ -168,24 +168,42 @@ router.post('/checkout', async (req, res) => {
 
     const settings = await db.work_settings.get();
     const workEnd = settings.work_end_hour || '17:00';
-    const earlyLeaveMinutes = currentTime < workEnd ? calculateEarlyLeaveMinutes(currentTime, workEnd) : 0;
-    const overtimeMinutes = currentTime > workEnd ? calculateOvertimeMinutes(currentTime, workEnd) : 0;
+    const isEarly = currentTime < workEnd;
 
+    if (isEarly) {
+      const pending = await db.requests.getByUser(req.user.id);
+      const hasPending = pending.find(r => r.status === 'pending');
+      if (hasPending) return res.status(400).json({ error: 'لديك طلب معلق بالفعل' });
+
+      await db.requests.create({
+        user_id: req.user.id,
+        type: 'early_leave',
+        date_from: today,
+        date_to: today,
+        reason: reason || 'انصراف مبكر',
+        checkout_date: today,
+        checkout_time: nowISO,
+        checkout_lat: latitude,
+        checkout_lng: longitude
+      });
+      return res.json({ message: 'تم إرسال طلب الانصراف المبكر للموافقة', pending: true });
+    }
+
+    const overtimeMinutes = calculateOvertimeMinutes(currentTime, workEnd);
     await db.attendance.update(req.user.id, today, {
       check_out_time: nowISO, check_out_lat: latitude || null, check_out_lng: longitude || null,
-      overtime_minutes: overtimeMinutes,
-      notes: earlyLeaveMinutes > 0 && reason ? reason : existing.notes
+      overtime_minutes: overtimeMinutes
     });
 
-    const totalWorkMinutes = calculateWorkMinutes(settings.work_start_hour, settings.work_end_hour);
     const lateMinutes = existing.status === 'late' ? calculateLateMinutes(settings.work_start_hour, new Date(existing.check_in_time).toTimeString().slice(0, 5)) : 0;
-    const evalScore = calculateEvaluation(lateMinutes, earlyLeaveMinutes, totalWorkMinutes);
+    const totalWorkMinutes = calculateWorkMinutes(settings.work_start_hour, settings.work_end_hour);
+    const evalScore = calculateEvaluation(lateMinutes, 0, totalWorkMinutes);
     await db.daily_evaluations.upsert(req.user.id, today, {
-      evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: earlyLeaveMinutes,
-      overtime_hours: Math.round(overtimeMinutes / 60 * 100) / 100, notes: earlyLeaveMinutes > 0 && reason ? reason : null
+      evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: 0,
+      overtime_hours: Math.round(overtimeMinutes / 60 * 100) / 100, notes: null
     });
 
-    res.json({ message: 'تم تسجيل انصرافك بنجاح', time: nowISO, earlyLeaveMinutes, overtimeMinutes, reason: earlyLeaveMinutes > 0 ? reason : null });
+    res.json({ message: 'تم تسجيل انصرافك بنجاح', time: nowISO, overtimeMinutes });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تسجيل الانصراف: ' + err.message });
   }
@@ -313,7 +331,7 @@ router.post('/requests', async (req, res) => {
   try {
     const { type, date_from, date_to, reason } = req.body;
     if (!type || !date_from) return res.status(400).json({ error: 'نوع الطلب وتاريخ البداية مطلوبين' });
-    if (!['leave', 'permission', 'mission'].includes(type)) return res.status(400).json({ error: 'نوع طلب غير صحيح' });
+    if (!['leave', 'permission', 'mission', 'early_leave'].includes(type)) return res.status(400).json({ error: 'نوع طلب غير صحيح' });
     
     // Check if user has a pending request
     const existing = await db.requests.getByUser(req.user.id);

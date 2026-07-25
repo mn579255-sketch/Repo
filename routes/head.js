@@ -21,7 +21,8 @@ router.get('/requests', async (req, res) => {
       employee_phone: userMap[r.user_id] ? userMap[r.user_id].phone : '',
       employee_email: userMap[r.user_id] ? userMap[r.user_id].email : '',
       employee_department: deptMap[userMap[r.user_id]?.department_id] || 'غير محدد',
-      reviewer_name: r.reviewed_by && userMap[r.reviewed_by] ? userMap[r.reviewed_by].name : null
+      reviewer_name: r.reviewed_by && userMap[r.reviewed_by] ? userMap[r.reviewed_by].name : null,
+      admin_reviewer_name: r.admin_reviewed_by && userMap[r.admin_reviewed_by] ? userMap[r.admin_reviewed_by].name : null
     }));
     res.json(enriched);
   } catch (err) {
@@ -41,6 +42,17 @@ router.put('/requests/:id', async (req, res) => {
     const requestUser = await db.users.get(request.user_id);
     if (!user || !requestUser || user.department_id !== requestUser.department_id) {
       return res.status(403).json({ error: 'غير مصرح: هذا الطلب ليس في قسمك' });
+    }
+
+    if (request.type === 'early_leave') {
+      const updates = { reviewed_by: req.user.id, review_notes: review_notes || null };
+      if (status === 'approved') {
+        updates.admin_status = 'pending';
+      } else {
+        updates.status = 'rejected';
+      }
+      const updated = await db.requests.update(parseInt(req.params.id), updates);
+      return res.json({ message: status === 'approved' ? 'تمت موافقة المدير - في انتظار موافقة الإدارة' : 'تم رفض الطلب', request: updated });
     }
 
     const updated = await db.requests.update(parseInt(req.params.id), { status, reviewed_by: req.user.id, review_notes: review_notes || null });

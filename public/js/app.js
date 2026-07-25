@@ -220,13 +220,19 @@ async function loadAdminAttendance(el) {
   el.innerHTML = `<div class="page-header"><h2>سجلات الحضور</h2><p>عرض وتعديل سجلات حضور وانصراف الموظفين</p></div><div class="spinner"></div>`;
   try {
     const now = new Date();
-    const attendance = await api(`/admin/attendance/all?month=${now.getMonth() + 1}&year=${now.getFullYear()}`);
+    const [attendance, employees, departments] = await Promise.all([
+      api(`/admin/attendance/filtered?month=${now.getMonth() + 1}&year=${now.getFullYear()}`),
+      api('/admin/employees'),
+      api('/admin/departments')
+    ]);
     el.innerHTML = `
       <div class="page-header"><h2>سجلات الحضور</h2><p>عرض وتعديل سجلات حضور وانصراف الموظفين</p></div>
       <div class="card">
-        <div class="filters-bar">
-          <select id="attMonth" onchange="filterAttendance()">${[...Array(12)].map((_, i) => `<option value="${i+1}" ${i+1 === now.getMonth()+1 ? 'selected' : ''}>${['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'][i]}</option>`).join('')}</select>
-          <select id="attYear" onchange="filterAttendance()">${[now.getFullYear(), now.getFullYear()-1].map(y => `<option value="${y}" ${y === now.getFullYear() ? 'selected' : ''}>${y}</option>`).join('')}</select>
+        <div class="filters-bar" style="flex-wrap:wrap;gap:8px">
+          <select id="attMonth" onchange="filterAttendanceAdvanced()">${[...Array(12)].map((_, i) => `<option value="${i+1}" ${i+1 === now.getMonth()+1 ? 'selected' : ''}>${['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'][i]}</option>`).join('')}</select>
+          <select id="attYear" onchange="filterAttendanceAdvanced()">${[now.getFullYear(), now.getFullYear()-1].map(y => `<option value="${y}" ${y === now.getFullYear() ? 'selected' : ''}>${y}</option>`).join('')}</select>
+          <select id="attDept" onchange="filterAttendanceAdvanced()"><option value="">كل الأقسام</option>${departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}</select>
+          <select id="attEmp" onchange="filterAttendanceAdvanced()"><option value="">كل الموظفين</option>${employees.map(e => `<option value="${e.id}">${e.name}</option>`).join('')}</select>
           <button class="btn btn-primary btn-sm" onclick="showManualAttendanceModal()">+ تسجيل يدوي</button>
         </div>
         <div id="attendanceTable">${renderAttendanceTable(attendance)}</div>
@@ -236,26 +242,35 @@ async function loadAdminAttendance(el) {
 
 function renderAttendanceTable(records) {
   if (!records.length) return '<div class="empty-state"><p>لا توجد سجلات في هذا الفترة</p></div>';
-  return `<div class="table-container"><table><thead><tr><th>التاريخ</th><th>الموظف</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>الملاحظات</th></tr></thead><tbody>
+  return `<div class="table-container"><table><thead><tr><th>التاريخ</th><th>الموظف</th><th>القسم</th><th>الحضور</th><th>الانصراف</th><th>الحالة</th><th>الملاحظات</th></tr></thead><tbody>
     ${records.map(r => `<tr>
       <td>${r.date}</td>
-      <td><strong>${r.employee_name}</strong></td>
+      <td><strong>${r.employee_name}</strong><br><span style="color:var(--gray-400);font-size:0.75rem">${r.employee_phone || ''}</span></td>
+      <td><span class="badge badge-present" style="background:#e0e7ff;color:#3730a3;font-size:0.75rem">${r.employee_department || '-'}</span></td>
       <td>${r.check_in_time ? new Date(r.check_in_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '-'}</td>
       <td>${r.check_out_time ? new Date(r.check_out_time).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '-'}</td>
-      <td><span class="badge badge-${r.status}">${r.status === 'present' ? 'حاضر' : r.status === 'late' ? 'متأخر' : r.status === 'absent' ? 'غائب' : 'انصراف مبكر'}</span></td>
+      <td><span class="badge badge-${r.status}">${r.status === 'present' ? 'حاضر' : r.status === 'late' ? 'متأخر' : r.status === 'absent' ? 'غائب' : r.status}</span></td>
       <td>${r.notes || '-'}</td>
     </tr>`).join('')}
   </tbody></table></div>`;
 }
 
-async function filterAttendance() {
+async function filterAttendanceAdvanced() {
   const month = document.getElementById('attMonth').value;
   const year = document.getElementById('attYear').value;
+  const deptId = document.getElementById('attDept').value;
+  const empId = document.getElementById('attEmp').value;
   try {
-    const records = await api(`/admin/attendance/all?month=${month}&year=${year}`);
+    let url = `/admin/attendance/filtered?month=${month}&year=${year}`;
+    if (deptId) url += `&department_id=${deptId}`;
+    if (empId) url += `&user_id=${empId}`;
+    const records = await api(url);
     document.getElementById('attendanceTable').innerHTML = renderAttendanceTable(records);
   } catch (err) { showToast(err.message, 'error'); }
 }
+
+// Keep old filterAttendance for backward compatibility
+async function filterAttendance() { filterAttendanceAdvanced(); }
 
 async function showManualAttendanceModal() {
   const employees = await api('/admin/employees');
@@ -553,10 +568,11 @@ async function loadAdminRequests(el) {
 }
 
 function renderAdminRequestsTable(requests) {
-  const typeMap = { leave: 'إجازة', permission: 'إذن', mission: 'مأمورية' };
+  const typeMap = { leave: 'إجازة', permission: 'إذن', mission: 'مأمورية', early_leave: 'انصراف مبكر' };
   const statusMap = { pending: 'معلق', approved: 'تمت الموافقة', rejected: 'مرفوض' };
+  const statusClass = { pending: 'badge-pending', approved: 'badge-present', rejected: 'badge-absent' };
   if (!requests.length) return '<div class="empty-state"><p>لا توجد طلبات</p></div>';
-  return `<div class="table-container"><table><thead><tr><th>الموظف</th><th>القسم</th><th>النوع</th><th>من</th><th>إلى</th><th>السبب</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody>
+  return `<div class="table-container"><table><thead><tr><th>الموظف</th><th>القسم</th><th>النوع</th><th>من</th><th>إلى</th><th>السبب</th><th>حالة المدير</th><th>حالة الإدارة</th><th>إجراءات</th></tr></thead><tbody>
     ${requests.map(r => `<tr>
       <td><strong>${r.employee_name}</strong></td>
       <td>${r.employee_department}</td>
@@ -564,11 +580,15 @@ function renderAdminRequestsTable(requests) {
       <td>${r.date_from}</td>
       <td>${r.date_to || r.date_from}</td>
       <td>${r.reason || '-'}</td>
-      <td><span class="badge ${statusClass[r.status]}">${statusMap[r.status]}</span></td>
-      <td>${r.status === 'pending' ? `
+      <td>${r.type === 'early_leave' ? `<span class="badge ${r.reviewed_by ? 'badge-present' : 'badge-pending'}">${r.reviewed_by ? 'وافق ' + (r.reviewer_name || '') : 'معلق'}</span>` : `<span class="badge ${statusClass[r.status]}">${statusMap[r.status]}</span>`}</td>
+      <td>${r.type === 'early_leave' ? `<span class="badge ${r.admin_status === 'approved' ? 'badge-present' : r.admin_status === 'rejected' ? 'badge-absent' : 'badge-pending'}">${r.admin_status === 'approved' ? 'وافق ' + (r.admin_reviewer_name || '') : r.admin_status === 'rejected' ? 'مرفوض' : r.reviewed_by ? 'معلق' : '-'}</span>` : '-'}</td>
+      <td>${r.type === 'early_leave' ? (r.reviewed_by && r.admin_status !== 'approved' && r.admin_status !== 'rejected' ? `
         <button class="btn btn-success btn-sm" onclick="adminReviewRequest(${r.id},'approved')">موافقة</button>
         <button class="btn btn-danger btn-sm" onclick="adminReviewRequest(${r.id},'rejected')">رفض</button>
-      ` : (r.reviewer_name ? `<span style="color:var(--gray-400);font-size:0.75rem">${r.reviewer_name}</span>` : '')}</td>
+      ` : r.admin_status === 'approved' || r.admin_status === 'rejected' ? `<span style="color:var(--gray-400);font-size:0.75rem">${r.admin_reviewer_name || ''}</span>` : '<span style="color:var(--gray-400);font-size:0.75rem">بانتظار المدير</span>') : (r.status === 'pending' ? `
+        <button class="btn btn-success btn-sm" onclick="adminReviewRequest(${r.id},'approved')">موافقة</button>
+        <button class="btn btn-danger btn-sm" onclick="adminReviewRequest(${r.id},'rejected')">رفض</button>
+      ` : `<span style="color:var(--gray-400);font-size:0.75rem">${r.reviewer_name || ''}</span>`)}</td>
     </tr>`).join('')}
   </tbody></table></div>`;
 }
@@ -794,8 +814,8 @@ function showEarlyCheckoutModal(lat, lng) {
   overlay.className = 'modal-overlay';
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
   overlay.innerHTML = `<div class="modal">
-    <h3 style="color:var(--warning)">${Icons.alert} انصراف مبكر</h3>
-    <p style="color:var(--gray-500);margin-bottom:16px">أنت تسجل انصرافك قبل موعد الدوام. يرجى اختيار سبب الانصراف المبكر:</p>
+    <h3 style="color:var(--warning)">${Icons.alert} طلب انصراف مبكر</h3>
+    <p style="color:var(--gray-500);margin-bottom:16px">أنت تسجل انصرافك قبل موعد الدوام. سيتم إرسال طلب الموافقة لمدير القسم ثم الإدارة.</p>
     <form id="earlyCheckoutForm">
       <div class="form-group"><label>سبب الانصراف المبكر</label>
         <select id="earlyReason" required>
@@ -805,7 +825,7 @@ function showEarlyCheckoutModal(lat, lng) {
       </div>
       <div class="form-group" id="customReasonGroup" style="display:none"><label>سبب آخر</label><input type="text" id="customReason" placeholder="اكتب السبب"></div>
       <div style="display:flex;gap:8px">
-        <button type="submit" class="btn btn-warning" style="background:var(--warning);color:#fff">تأكيد الانصراف</button>
+        <button type="submit" class="btn btn-warning" style="color:#fff">إرسال الطلب</button>
         <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">إلغاء</button>
       </div>
     </form></div>`;
@@ -960,21 +980,27 @@ async function loadEmpRequests(el) {
   el.innerHTML = `<div class="spinner"></div>`;
   try {
     const requests = await api('/employee/my-requests');
-    const typeMap = { leave: 'إجازة', permission: 'إذن', mission: 'مأمورية' };
+    const typeMap = { leave: 'إجازة', permission: 'إذن', mission: 'مأمورية', early_leave: 'انصراف مبكر' };
     const statusMap = { pending: 'معلق', approved: 'تمت الموافقة', rejected: 'مرفوض' };
     const statusClass = { pending: 'badge-pending', approved: 'badge-present', rejected: 'badge-absent' };
 
-    el.innerHTML = `<div class="page-header"><h2>طلباتي</h2><p>جميع طلبات الإجازات والأذونات والمأموريات</p></div>
+    el.innerHTML = `<div class="page-header"><h2>طلباتي</h2><p>جميع طلبات الإجازات والأذونات والمأموريات والانصراف المبكر</p></div>
       <div class="card">
-        ${requests.length ? `<div class="table-container"><table><thead><tr><th>النوع</th><th>من</th><th>إلى</th><th>السبب</th><th>الحالة</th><th>المراجع</th></tr></thead><tbody>
-          ${requests.map(r => `<tr>
-            <td><span class="badge badge-present" style="background:#e0e7ff;color:#3730a3">${typeMap[r.type]}</span></td>
-            <td>${r.date_from}</td>
-            <td>${r.date_to || r.date_from}</td>
-            <td>${r.reason || '-'}</td>
-            <td><span class="badge ${statusClass[r.status]}">${statusMap[r.status]}</span></td>
-            <td>${r.reviewer_name || '-'}</td>
-          </tr>`).join('')}
+        ${requests.length ? `<div class="table-container"><table><thead><tr><th>التاريخ</th><th>النوع</th><th>السبب</th><th>الحالة</th><th>المراجع</th></tr></thead><tbody>
+          ${requests.map(r => {
+            let statusText = statusMap[r.status];
+            if (r.type === 'early_leave' && r.status === 'pending' && r.reviewed_by) statusText = 'بانتظار الإدارة';
+            if (r.type === 'early_leave' && r.status === 'approved') statusText = 'تمت الموافقة';
+            if (r.type === 'early_leave' && r.status === 'rejected') statusText = 'مرفوض';
+            const reviewer = r.reviewer_name ? (r.admin_reviewer_name ? r.reviewer_name + ' → ' + r.admin_reviewer_name : r.reviewer_name) : '-';
+            return `<tr>
+              <td>${r.date_from}</td>
+              <td><span class="badge badge-present" style="background:#e0e7ff;color:#3730a3">${typeMap[r.type]}</span></td>
+              <td>${r.reason || '-'}</td>
+              <td><span class="badge ${statusClass[r.status]}">${statusText}</span></td>
+              <td>${reviewer}</td>
+            </tr>`;
+          }).join('')}
         </tbody></table></div>` : '<div class="empty-state"><p>لم تقدم أي طلبات بعد</p><button class="btn btn-primary" style="margin-top:12px" onclick="showEmpView(\'new-request\')"> تقديم طلب جديد</button></div>'}
       </div>`;
   } catch (err) { el.innerHTML = `<div class="empty-state"><p>خطأ: ${err.message}</p></div>`; }
@@ -1029,13 +1055,14 @@ async function loadHeadRequests(el) {
   el.innerHTML = `<div class="spinner"></div>`;
   try {
     const requests = await api('/head/requests');
-    const typeMap = { leave: 'إجازة', permission: 'إذن', mission: 'مأمورية' };
+    const typeMap = { leave: 'إجازة', permission: 'إذن', mission: 'مأمورية', early_leave: 'انصراف مبكر' };
     const statusMap = { pending: 'معلق', approved: 'تمت الموافقة', rejected: 'مرفوض' };
     const statusClass = { pending: 'badge-pending', approved: 'badge-present', rejected: 'badge-absent' };
+    const pendingHead = requests.filter(r => r.status === 'pending');
 
     el.innerHTML = `<div class="page-header"><h2>طلبات القسم</h2><p>مراجعة وموافقة أو رفض طلبات الموظفين في قسمك</p></div>
       <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">
-        <div class="stat-card"><div class="stat-icon yellow">${Icons.clock}</div><div class="stat-info"><h4>معلقة</h4><div class="stat-value">${requests.filter(r => r.status === 'pending').length}</div></div></div>
+        <div class="stat-card"><div class="stat-icon yellow">${Icons.clock}</div><div class="stat-info"><h4>معلقة</h4><div class="stat-value">${pendingHead.length}</div></div></div>
         <div class="stat-card"><div class="stat-icon green">${Icons.check}</div><div class="stat-info"><h4>تمت الموافقة</h4><div class="stat-value">${requests.filter(r => r.status === 'approved').length}</div></div></div>
         <div class="stat-card"><div class="stat-icon red">${Icons.reject}</div><div class="stat-info"><h4>مرفوضة</h4><div class="stat-value">${requests.filter(r => r.status === 'rejected').length}</div></div></div>
       </div>
@@ -1047,7 +1074,7 @@ async function loadHeadRequests(el) {
             <td>${r.date_from}</td>
             <td>${r.date_to || r.date_from}</td>
             <td>${r.reason || '-'}</td>
-            <td><span class="badge ${statusClass[r.status]}">${statusMap[r.status]}</span></td>
+            <td>${r.type === 'early_leave' ? `<span class="badge ${r.admin_status === 'approved' ? 'badge-present' : r.admin_status === 'rejected' ? 'badge-absent' : 'badge-pending'}">${r.admin_status === 'approved' ? 'اعتمد إدارياً' : r.admin_status === 'rejected' ? 'مرفوض إدارياً' : r.reviewed_by ? 'تمت موافقتك' : 'معلق'}</span>` : `<span class="badge ${statusClass[r.status]}">${statusMap[r.status]}</span>`}</td>
             <td>${r.status === 'pending' ? `
               <button class="btn btn-success btn-sm" onclick="headReviewRequest(${r.id},'approved')">موافقة</button>
               <button class="btn btn-danger btn-sm" onclick="headReviewRequest(${r.id},'rejected')">رفض</button>
