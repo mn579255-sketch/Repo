@@ -58,7 +58,8 @@ router.get('/employees', async (req, res) => {
     const mapped = employees.map(u => ({
       id: u.id, name: u.name, phone: u.phone, email: u.email, role: u.role,
       department_id: u.department_id, department_name: deptMap[u.department_id] || 'غير محدد',
-      salary: u.salary || 0, created_at: u.created_at
+      salary: u.salary || 0, birth_date: u.birth_date, hire_date: u.hire_date,
+      profile_photo: u.profile_photo, created_at: u.created_at
     }));
     res.json(mapped);
   } catch (err) {
@@ -80,7 +81,8 @@ router.get('/employees/:id', async (req, res) => {
     res.json({
       id: user.id, name: user.name, phone: user.phone, email: user.email, role: user.role,
       department_id: user.department_id, department_name: deptMap[user.department_id] || 'غير محدد',
-      salary: user.salary || 0, created_at: user.created_at, attendance, evaluations
+      salary: user.salary || 0, birth_date: user.birth_date, hire_date: user.hire_date,
+      profile_photo: user.profile_photo, created_at: user.created_at, attendance, evaluations
     });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في جلب بيانات الموظف' });
@@ -481,8 +483,14 @@ router.put('/attendance/edit', async (req, res) => {
     if (!existing) return res.status(404).json({ error: 'لا يوجد سجل حضور لهذا التاريخ' });
 
     const updates = {};
-    if (check_in_time !== undefined) updates.check_in_time = check_in_time || null;
-    if (check_out_time !== undefined) updates.check_out_time = check_out_time || null;
+    if (check_in_time !== undefined) {
+      if (check_in_time) updates.check_in_time = new Date(date + 'T' + check_in_time + ':00').toISOString();
+      else updates.check_in_time = null;
+    }
+    if (check_out_time !== undefined) {
+      if (check_out_time) updates.check_out_time = new Date(date + 'T' + check_out_time + ':00').toISOString();
+      else updates.check_out_time = null;
+    }
     if (status !== undefined) updates.status = status;
     if (notes !== undefined) updates.notes = notes || null;
 
@@ -492,6 +500,60 @@ router.put('/attendance/edit', async (req, res) => {
     res.json({ message: 'تم تعديل سجل الحضور بنجاح' });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تعديل السجل: ' + err.message });
+  }
+});
+
+// Anniversaries (birthdays + work anniversaries)
+router.get('/anniversaries', async (req, res) => {
+  const db = getDb();
+  try {
+    const employees = await db.users.getEmployees();
+    const today = new Date();
+    const todayMonth = today.getMonth() + 1;
+    const todayDay = today.getDate();
+    const departments = await db.departments.getAll();
+    const deptMap = {};
+    departments.forEach(d => { deptMap[d.id] = d.name; });
+
+    const results = [];
+    for (const emp of employees) {
+      if (emp.birth_date) {
+        const bd = new Date(emp.birth_date);
+        if (bd.getMonth() + 1 === todayMonth && bd.getDate() === todayDay) {
+          const age = today.getFullYear() - bd.getFullYear();
+          results.push({ id: emp.id, name: emp.name, type: 'birthday', date: emp.birth_date, detail: `عيد ميلاده - ${age} سنة`, department: deptMap[emp.department_id] || 'غير محدد', profile_photo: emp.profile_photo });
+        }
+      }
+      if (emp.hire_date) {
+        const hd = new Date(emp.hire_date);
+        if (hd.getMonth() + 1 === todayMonth && hd.getDate() === todayDay) {
+          const years = today.getFullYear() - hd.getFullYear();
+          results.push({ id: emp.id, name: emp.name, type: 'hire', date: emp.hire_date, detail: years === 0 ? 'يوم التحاقه بالعمل' : `ذكرى ${years} ${years === 1 ? 'سنة' : 'سنوات'} عمل`, department: deptMap[emp.department_id] || 'غير محدد', profile_photo: emp.profile_photo });
+        }
+      }
+      // Upcoming within 7 days
+      if (emp.birth_date) {
+        const bd = new Date(emp.birth_date);
+        const bdThisYear = new Date(today.getFullYear(), bd.getMonth(), bd.getDate());
+        const diff = Math.ceil((bdThisYear - today) / (1000 * 60 * 60 * 24));
+        if (diff > 0 && diff <= 7) {
+          const age = today.getFullYear() - bd.getFullYear() + 1;
+          results.push({ id: emp.id, name: emp.name, type: 'birthday_upcoming', date: emp.birth_date, detail: `عيد ميلاده بعد ${diff} أيام - سيكمل ${age} سنة`, department: deptMap[emp.department_id] || 'غير محدد', profile_photo: emp.profile_photo });
+        }
+      }
+      if (emp.hire_date) {
+        const hd = new Date(emp.hire_date);
+        const hdThisYear = new Date(today.getFullYear(), hd.getMonth(), hd.getDate());
+        const diff = Math.ceil((hdThisYear - today) / (1000 * 60 * 60 * 24));
+        if (diff > 0 && diff <= 7) {
+          const years = today.getFullYear() - hd.getFullYear();
+          results.push({ id: emp.id, name: emp.name, type: 'hire_upcoming', date: emp.hire_date, detail: `ذكرى التحاقه بعد ${diff} أيام - ${years} ${years === 1 ? 'سنة' : 'سنوات'} عمل`, department: deptMap[emp.department_id] || 'غير محدد', profile_photo: emp.profile_photo });
+        }
+      }
+    }
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في جلب الذكريات' });
   }
 });
 
@@ -531,7 +593,8 @@ router.get('/employee-status', async (req, res) => {
       return {
         id: emp.id, name: emp.name, department_id: emp.department_id,
         department_name: deptMap[emp.department_id] || 'غير محدد',
-        status, statusText
+        status, statusText, birth_date: emp.birth_date, hire_date: emp.hire_date,
+        profile_photo: emp.profile_photo
       };
     });
 
@@ -549,20 +612,23 @@ router.get('/employee-status', async (req, res) => {
   }
 });
 
-// Admin edit any employee (allow editing name, email, phone, salary, department_id, role)
+// Admin edit any employee (allow editing name, email, phone, salary, department_id, role, birth_date, hire_date)
 router.put('/employees/:id/edit', async (req, res) => {
   const db = getDb();
   try {
     const id = parseInt(req.params.id);
     const user = await db.users.get(id);
     if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
-    const { name, email, phone, salary, department_id } = req.body;
+    const { name, email, phone, salary, department_id, birth_date, hire_date, profile_photo } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
     if (email !== undefined) updates.email = email;
     if (phone !== undefined) updates.phone = phone;
     if (salary !== undefined) updates.salary = salary;
     if (department_id !== undefined) updates.department_id = department_id || null;
+    if (birth_date !== undefined) updates.birth_date = birth_date || null;
+    if (hire_date !== undefined) updates.hire_date = hire_date || null;
+    if (profile_photo !== undefined) updates.profile_photo = profile_photo || null;
     if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'لم يتم إدخال بيانات' });
     await db.users.update(id, updates);
     res.json({ message: 'تم تحديث البيانات بنجاح' });

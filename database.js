@@ -159,7 +159,8 @@ function getDb() {
         }
       },
       async update(userId, date, data) {
-        await supabase.from('attendance').update(data).eq('user_id', userId).eq('date', date);
+        const { error } = await supabase.from('attendance').update(data).eq('user_id', userId).eq('date', date);
+        if (error) throw error;
       },
       async getUserStats(userId) {
         const records = await this.getByUser(userId);

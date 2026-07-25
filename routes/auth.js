@@ -56,7 +56,7 @@ router.post('/login', async (req, res) => {
       res.json({
         message: 'تم تسجيل الدخول بنجاح',
         token,
-        user: { id: user.id, name: user.name, role: user.role, email: user.email, phone: user.phone, department_id: user.department_id, salary: user.salary }
+        user: { id: user.id, name: user.name, role: user.role, email: user.email, phone: user.phone, department_id: user.department_id, salary: user.salary, birth_date: user.birth_date, hire_date: user.hire_date, profile_photo: user.profile_photo }
       });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تسجيل الدخول: ' + err.message });
@@ -73,7 +73,7 @@ router.get('/me', async (req, res) => {
     const decoded = jwt.verify(token, SECRET);
     const user = await db.users.get(decoded.id);
     if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
-    res.json({ id: user.id, name: user.name, phone: user.phone, email: user.email, role: user.role, department_id: user.department_id, salary: user.salary, created_at: user.created_at });
+    res.json({ id: user.id, name: user.name, phone: user.phone, email: user.email, role: user.role, department_id: user.department_id, salary: user.salary, birth_date: user.birth_date, hire_date: user.hire_date, profile_photo: user.profile_photo, created_at: user.created_at });
   } catch (err) {
     res.status(403).json({ error: 'جلسة منتهية' });
   }

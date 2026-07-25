@@ -64,16 +64,19 @@ function calculateEvaluation(lateMinutes, earlyLeaveMinutes, totalWorkMinutes) {
 router.put('/profile', async (req, res) => {
   const db = getDb();
   try {
-    const { department_id, salary } = req.body;
+    const { department_id, salary, birth_date, hire_date, profile_photo } = req.body;
     const updates = {};
     if (department_id !== undefined) updates.department_id = department_id || null;
     if (salary !== undefined) updates.salary = parseFloat(salary) || 0;
+    if (birth_date !== undefined) updates.birth_date = birth_date || null;
+    if (hire_date !== undefined) updates.hire_date = hire_date || null;
+    if (profile_photo !== undefined) updates.profile_photo = profile_photo || null;
     if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'لم يتم إدخال أي بيانات' });
     await db.users.update(req.user.id, updates);
     const user = await db.users.get(req.user.id);
     res.json({
       message: 'تم تحديث بياناتك بنجاح',
-      user: { id: user.id, name: user.name, department_id: user.department_id, salary: user.salary }
+      user: { id: user.id, name: user.name, department_id: user.department_id, salary: user.salary, birth_date: user.birth_date, hire_date: user.hire_date, profile_photo: user.profile_photo }
     });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تحديث البيانات: ' + err.message });

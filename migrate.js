@@ -10,9 +10,9 @@ const c = new Client({
 
 async function run() {
   await c.connect();
-  await c.query("ALTER TABLE departments ADD COLUMN IF NOT EXISTS work_start_hour TEXT DEFAULT '09:00'");
-  await c.query("ALTER TABLE departments ADD COLUMN IF NOT EXISTS work_end_hour TEXT DEFAULT '17:00'");
-  await c.query("ALTER TABLE departments ADD COLUMN IF NOT EXISTS work_days_per_week INTEGER DEFAULT 5");
+  await c.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS birth_date DATE");
+  await c.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS hire_date DATE");
+  await c.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo TEXT");
   console.log('Done');
   await c.end();
 }

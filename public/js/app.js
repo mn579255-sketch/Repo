@@ -183,7 +183,7 @@ function showAdminView(view, btn) {
 async function loadAdminDashboard(el) {
   el.innerHTML = `<div class="page-header"><h2>لوحة التحكم</h2><p>نظرة عامة على حضور وانصراف الموظفين</p></div><div class="spinner"></div>`;
   try {
-    const [stats, departments, empStatus] = await Promise.all([api('/admin/employees-stats'), api('/admin/departments'), api('/admin/employee-status')]);
+    const [stats, departments, empStatus, anniversaries] = await Promise.all([api('/admin/employees-stats'), api('/admin/departments'), api('/admin/employee-status'), api('/admin/anniversaries')]);
     el.innerHTML = `
       <div class="page-header"><h2>لوحة التحكم</h2><p>نظرة عامة على حضور وانصراف الموظفين</p></div>
       <div class="stats-grid">
@@ -208,6 +208,24 @@ async function loadAdminDashboard(el) {
           </tr>`).join('')}
         </tbody></table></div>
       </div>
+      ${anniversaries.length ? `
+      <div class="card" style="margin-bottom:16px;border:2px solid #fbbf24;background:#fffbeb">
+        <div class="card-header"><h3>🎂 الذكريات اليوم</h3></div>
+        <div style="padding:16px;display:flex;flex-wrap:wrap;gap:12px">
+          ${anniversaries.map(a => `
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;background:#fff;border-radius:12px;border:1px solid #fde68a;min-width:200px">
+              <div style="width:40px;height:40px;border-radius:50%;background:${a.type.includes('birthday') ? '#ec4899' : '#2563eb'};color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.25rem;flex-shrink:0;overflow:hidden">
+                ${a.profile_photo ? `<img src="${a.profile_photo}" style="width:100%;height:100%;object-fit:cover">` : (a.type.includes('birthday') ? '🎂' : '🎉')}
+              </div>
+              <div>
+                <div style="font-weight:700;font-size:0.875rem">${a.name}</div>
+                <div style="font-size:0.75rem;color:var(--gray-500)">${a.detail}</div>
+                <div style="font-size:0.7rem;color:var(--gray-400)">${a.department}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>` : ''}
       ${departments.length ? `
         <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
           ${departments.map(d => {
@@ -366,15 +384,17 @@ async function loadAdminEmployees(el) {
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
           ${employees.map(e => `
             <div class="employee-card" onclick="showEmployeeDetail(${e.id})">
-              <div class="employee-avatar">${e.name.charAt(0)}</div>
+              <div class="employee-avatar" style="overflow:hidden">${e.profile_photo ? `<img src="${e.profile_photo}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : e.name.charAt(0)}</div>
               <div class="employee-details" style="flex:1">
                 <h4>${e.name}</h4>
                 <p>${e.email}</p>
                 <p><span class="badge badge-present" style="background:#e0e7ff;color:#3730a3">${e.department_name}</span></p>
                 ${e.salary ? `<p style="color:var(--success);font-weight:600">${fmt(e.salary)} ج.م/شهر</p>` : ''}
+                ${e.birth_date ? `<p style="font-size:0.75rem;color:var(--gray-400)">🎂 ${e.birth_date}</p>` : ''}
+                ${e.hire_date ? `<p style="font-size:0.75rem;color:var(--gray-400)">📋 ${e.hire_date}</p>` : ''}
               </div>
               <div style="display:flex;gap:4px">
-                <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();showEditEmployeeModal(${e.id},'${e.name.replace(/'/g,"\\'")}',${e.department_id || 'null'},${e.salary || 0})" title="تعديل">${Icons.edit}</button>
+                <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();showEditEmployeeModal(${e.id},'${e.name.replace(/'/g,"\\'")}',${e.department_id || 'null'},${e.salary || 0},'${e.birth_date || ''}','${e.hire_date || ''}')" title="تعديل">${Icons.edit}</button>
                 <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteEmployee(${e.id},'${e.name.replace(/'/g,"\\'")}')" title="حذف">${Icons.trash}</button>
               </div>
             </div>
@@ -383,7 +403,7 @@ async function loadAdminEmployees(el) {
   } catch (err) { el.innerHTML = `<div class="empty-state"><p>خطأ: ${err.message}</p></div>`; }
 }
 
-async function showEditEmployeeModal(id, name, currentDeptId, currentSalary) {
+async function showEditEmployeeModal(id, name, currentDeptId, currentSalary, birthDate, hireDate) {
   const departments = await api('/admin/departments');
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -393,13 +413,22 @@ async function showEditEmployeeModal(id, name, currentDeptId, currentSalary) {
     <form id="editEmpForm">
       <div class="form-group"><label>القسم</label><select id="editDeptId"><option value="">غير محدد</option>${departments.map(d => `<option value="${d.id}" ${d.id === currentDeptId ? 'selected' : ''}>${d.name}</option>`).join('')}</select></div>
       <div class="form-group"><label>الراتب الشهري (ج.م)</label><input type="number" id="editSalary" value="${currentSalary}" min="0" step="100"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="form-group"><label>تاريخ الميلاد</label><input type="date" id="editBirthDate" value="${birthDate || ''}"></div>
+        <div class="form-group"><label>تاريخ التعيين</label><input type="date" id="editHireDate" value="${hireDate || ''}"></div>
+      </div>
       <div style="display:flex;gap:8px"><button type="submit" class="btn btn-primary">حفظ</button><button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">إلغاء</button></div>
     </form></div>`;
   document.body.appendChild(overlay);
   document.getElementById('editEmpForm').onsubmit = async (e) => {
     e.preventDefault();
     try {
-      await api(`/admin/employees/${id}`, { method: 'PUT', body: JSON.stringify({ department_id: document.getElementById('editDeptId').value || null, salary: parseFloat(document.getElementById('editSalary').value) || 0 }) });
+      await api(`/admin/employees/${id}/edit`, { method: 'PUT', body: JSON.stringify({
+        department_id: document.getElementById('editDeptId').value || null,
+        salary: parseFloat(document.getElementById('editSalary').value) || 0,
+        birth_date: document.getElementById('editBirthDate').value || null,
+        hire_date: document.getElementById('editHireDate').value || null
+      }) });
       showToast('تم تحديث بيانات الموظف بنجاح', 'success');
       overlay.remove();
       showAdminView('employees');
@@ -416,12 +445,14 @@ async function showEmployeeDetail(id) {
       <div style="margin-bottom:16px"><button class="btn btn-outline btn-sm" onclick="showAdminView('${adminCurrentView}')">${Icons.back} رجوع</button></div>
       <div class="card">
         <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
-          <div class="employee-avatar" style="width:64px;height:64px;font-size:1.5rem">${emp.name.charAt(0)}</div>
+          <div class="employee-avatar" style="width:64px;height:64px;font-size:1.5rem;overflow:hidden;flex-shrink:0">${emp.profile_photo ? `<img src="${emp.profile_photo}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : emp.name.charAt(0)}</div>
           <div>
             <h2>${emp.name}</h2>
             <p style="color:var(--gray-500)">${emp.email} | ${emp.phone}</p>
             <p><span class="badge badge-present" style="background:#e0e7ff;color:#3730a3">${emp.department_name}</span></p>
             ${emp.salary ? `<p style="color:var(--success);font-weight:600">الراتب: ${fmt(emp.salary)} ج.م | الساعة: ${fmt(emp.salary / 240)} ج.م</p>` : '<p style="color:var(--danger)">لم يتم تحديد الراتب بعد</p>'}
+            ${emp.birth_date ? `<p style="font-size:0.8125rem;color:var(--gray-400)">🎂 تاريخ الميلاد: ${emp.birth_date}</p>` : ''}
+            ${emp.hire_date ? `<p style="font-size:0.8125rem;color:var(--gray-400)">📋 تاريخ التعيين: ${emp.hire_date}</p>` : ''}
           </div>
         </div>
       </div>
@@ -1022,21 +1053,28 @@ async function loadEmpProfile(el) {
   try {
     const [userData, depts] = await Promise.all([api('/auth/me'), api('/employee/departments').catch(() => [])]);
 
-    el.innerHTML = `<div class="page-header"><h2>بياناتي الشخصية</h2><p>تعديل القسم والراتب</p></div>
+    el.innerHTML = `<div class="page-header"><h2>بياناتي الشخصية</h2><p>تعديل البيانات الشخصية والقسم والراتب</p></div>
       <div class="card">
+        <div style="text-align:center;margin-bottom:20px">
+          <div id="photoPreview" style="width:100px;height:100px;border-radius:50%;margin:0 auto 12px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:2.5rem;overflow:hidden;border:3px solid var(--primary)">
+            ${userData.profile_photo ? `<img src="${userData.profile_photo}" style="width:100%;height:100%;object-fit:cover">` : userData.name.charAt(0)}
+          </div>
+          <input type="file" id="profilePhotoInput" accept="image/*" style="display:none" onchange="handleProfilePhoto(event)">
+          <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('profilePhotoInput').click()">📷 تغيير الصورة</button>
+        </div>
         <form id="profileForm">
           <div class="form-group"><label>الاسم</label><input type="text" value="${userData.name}" disabled style="background:var(--gray-50)"></div>
           <div class="form-group"><label>البريد الإلكتروني</label><input type="text" value="${userData.email}" disabled style="background:var(--gray-50)"></div>
           <div class="form-group"><label>رقم الموبايل</label><input type="text" value="${userData.phone}" disabled style="background:var(--gray-50)"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div class="form-group"><label>تاريخ الميلاد</label><input type="date" id="myBirthDate" value="${userData.birth_date || ''}"></div>
+            <div class="form-group"><label>تاريخ التعيين</label><input type="date" id="myHireDate" value="${userData.hire_date || ''}"></div>
+          </div>
           <div class="form-group"><label>القسم</label><select id="myDept"><option value="">اختر القسم</option>${depts.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}</select></div>
           <div class="form-group"><label>الراتب الشهري (ج.م)</label><input type="number" id="mySalary" min="0" step="100" placeholder="أدخل راتبك الشهري"></div>
           <button type="submit" class="btn btn-primary" style="width:auto">${Icons.check} حفظ البيانات</button>
         </form>
       </div>`;
-
-    api('/employee/my-salary').then(s => {
-      if (s.salary) document.getElementById('mySalary').value = s.salary;
-    });
 
     if (userData.department_id) document.getElementById('myDept').value = userData.department_id;
     if (userData.salary) document.getElementById('mySalary').value = userData.salary;
@@ -1046,13 +1084,38 @@ async function loadEmpProfile(el) {
       try {
         const body = {
           department_id: document.getElementById('myDept').value || null,
-          salary: parseFloat(document.getElementById('mySalary').value) || 0
+          salary: parseFloat(document.getElementById('mySalary').value) || 0,
+          birth_date: document.getElementById('myBirthDate').value || null,
+          hire_date: document.getElementById('myHireDate').value || null
         };
         const result = await api('/employee/profile', { method: 'PUT', body: JSON.stringify(body) });
         showToast(result.message, 'success');
       } catch (err) { showToast(err.message, 'error'); }
     };
   } catch (err) { el.innerHTML = `<div class="empty-state"><p>خطأ: ${err.message}</p></div>`; }
+}
+
+let pendingPhotoData = null;
+function handleProfilePhoto(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (file.size > 500000) { showToast('حجم الصورة يجب أن يكون أقل من 500 كيلوبايت', 'error'); return; }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    pendingPhotoData = e.target.result;
+    document.getElementById('photoPreview').innerHTML = `<img src="${pendingPhotoData}" style="width:100%;height:100%;object-fit:cover">`;
+    saveProfilePhoto();
+  };
+  reader.readAsDataURL(file);
+}
+
+async function saveProfilePhoto() {
+  if (!pendingPhotoData) return;
+  try {
+    await api('/employee/profile', { method: 'PUT', body: JSON.stringify({ profile_photo: pendingPhotoData }) });
+    showToast('تم رفع الصورة بنجاح', 'success');
+    pendingPhotoData = null;
+  } catch (err) { showToast(err.message, 'error'); }
 }
 
 /* ============ EMPLOYEE REQUESTS ============ */
