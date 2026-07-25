@@ -50,12 +50,12 @@ function renderLogin() {
         <div class="auth-logo">
           <div class="logo-icon">${Icons.attendance}</div>
           <h1>نظام الحضور والانصراف</h1>
-          <p>تسجيل الدخول إلى حسابك</p>
+          <p>شركة ابداع للتطوير العقاري</p>
         </div>
         <form id="loginForm">
           <div class="form-group">
-            <label>البريد الإلكتروني</label>
-            <input type="email" id="loginEmail" placeholder="example@company.com" required>
+            <label>اسم المستخدم أو البريد الإلكتروني</label>
+            <input type="text" id="loginEmail" placeholder="اسم المستخدم أو البريد" required>
           </div>
           <div class="form-group">
             <label>كلمة المرور</label>
@@ -95,7 +95,7 @@ function renderRegister() {
         <div class="auth-logo">
           <div class="logo-icon">${Icons.attendance}</div>
           <h1>إنشاء حساب جديد</h1>
-          <p>سجّل كموظف في النظام</p>
+          <p>سجّل كموظف - شركة ابداع للتطوير العقاري</p>
         </div>
         <form id="registerForm">
           <div class="form-group">

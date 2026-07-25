@@ -38,9 +38,9 @@ router.post('/login', (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
-      return res.status(400).json({ error: 'البريد الإلكتروني وكلمة المرور مطلوبين' });
+      return res.status(400).json({ error: 'اسم المستخدم وكلمة المرور مطلوبين' });
     }
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    const user = db.prepare('SELECT * FROM users WHERE email = ? OR name = ? OR phone = ?').get(email, email, email);
     if (!user) {
       return res.status(401).json({ error: 'البريد الإلكتروني غير مسجل' });
     }

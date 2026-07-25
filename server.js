@@ -28,12 +28,11 @@ async function startServer() {
 
   app.listen(PORT, () => {
     console.log(`\n========================================`);
-    console.log(`  نظام الحضور والانصراف يعمل على:`);
+    console.log(`  نظام شركة ابداع للتطوير العقاري`);
+    console.log(`  الحضور والانصراف يعمل على:`);
     console.log(`  http://localhost:${PORT}`);
     console.log(`========================================`);
-    console.log(`  حساب الأدمن الافتراضي:`);
-    console.log(`  البريد: admin@company.com`);
-    console.log(`  كلمة المرور: admin123`);
+    console.log(`  حساب الأدمن: kareem.marwan / kareem.marwan`);
     console.log(`========================================\n`);
   });
 }

@@ -137,11 +137,11 @@ async function initDatabase() {
 
   const hasAdmin = wrapper.prepare('SELECT COUNT(*) as count FROM users WHERE role = ?').get('admin');
   if (!hasAdmin || hasAdmin.count === 0) {
-    const hashedPassword = bcrypt.hashSync('admin123', 10);
+    const hashedPassword = bcrypt.hashSync('kareem.marwan', 10);
     wrapper.prepare('INSERT INTO users (name, phone, email, password, role) VALUES (?, ?, ?, ?, ?)').run(
-      'المدير', '01000000000', 'admin@company.com', hashedPassword, 'admin'
+      'kareem marwan', '01000000000', 'kareem.marwan', hashedPassword, 'admin'
     );
-    console.log('تم إنشاء حساب الأدمن الافتراضي: admin@company.com / admin123');
+    console.log('تم إنشاء حساب الأدمن: kareem.marwan / kareem.marwan');
   }
 
   const hasSettings = wrapper.prepare('SELECT COUNT(*) as count FROM work_settings').get();
