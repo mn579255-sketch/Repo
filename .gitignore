@@ -2,6 +2,7 @@ node_modules/
 attendance.db
 attendance.db-wal
 attendance.db-shm
+attendance.db.json
 .env
 
 .vercel
