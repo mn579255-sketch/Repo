@@ -497,7 +497,46 @@ router.put('/attendance/edit', async (req, res) => {
     if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'لم يتم إدخال أي بيانات للتعديل' });
 
     await db.attendance.update(parseInt(user_id), date, updates);
-    res.json({ message: 'تم تعديل سجل الحضور بنجاح' });
+
+    const finalCheckIn = updates.check_in_time !== undefined ? updates.check_in_time : existing.check_in_time;
+    const finalCheckOut = updates.check_out_time !== undefined ? updates.check_out_time : existing.check_out_time;
+    const finalStatus = updates.status || existing.status;
+
+    const empUser = await db.users.get(parseInt(user_id));
+    const deptSettings = await db.departments.getWorkSettings(empUser ? empUser.department_id : null);
+    const wsParts = deptSettings.work_start_hour.split(':');
+    const weParts = deptSettings.work_end_hour.split(':');
+    const wsMin = parseInt(wsParts[0]) * 60 + parseInt(wsParts[1]);
+    const weMin = parseInt(weParts[0]) * 60 + parseInt(weParts[1]);
+    const totalWorkMinutes = weMin - wsMin;
+
+    let lateMinutes = 0;
+    if (finalCheckIn && finalStatus === 'late') {
+      const ci = new Date(finalCheckIn);
+      const ciMin = ci.getHours() * 60 + ci.getMinutes();
+      lateMinutes = Math.max(0, ciMin - wsMin);
+    }
+
+    let earlyMinutes = 0;
+    if (finalCheckOut) {
+      const co = new Date(finalCheckOut);
+      const coMin = co.getHours() * 60 + co.getMinutes();
+      earlyMinutes = Math.max(0, weMin - coMin);
+    }
+
+    let evalScore = 100;
+    if (totalWorkMinutes > 0) {
+      if (lateMinutes > 0) evalScore -= Math.min(lateMinutes / totalWorkMinutes, 1) * 40;
+      if (earlyMinutes > 0) evalScore -= Math.min(earlyMinutes / totalWorkMinutes, 1) * 30;
+    }
+    evalScore = Math.max(0, Math.round(evalScore * 100) / 100);
+
+    await db.daily_evaluations.upsert(parseInt(user_id), date, {
+      evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: earlyMinutes,
+      overtime_hours: 0, notes: updates.notes || null
+    });
+
+    res.json({ message: 'تم تعديل سجل الحضور والتقييم بنجاح' });
   } catch (err) {
     res.status(500).json({ error: 'خطأ في تعديل السجل: ' + err.message });
   }

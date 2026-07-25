@@ -143,13 +143,12 @@ router.post('/checkin', async (req, res) => {
     });
 
     const lateMinutes = status === 'late' ? calculateLateMinutes(workStart, currentTime) : 0;
-    if (lateMinutes > 0) {
-      const totalWorkMinutes = calculateWorkMinutes(deptSettings.work_start_hour, deptSettings.work_end_hour);
-      const evalScore = calculateEvaluation(lateMinutes, 0, totalWorkMinutes);
-      await db.daily_evaluations.upsert(req.user.id, today, {
-        evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: 0, notes: null
-      });
-    }
+    const totalWorkMinutes = calculateWorkMinutes(deptSettings.work_start_hour, deptSettings.work_end_hour);
+    const evalScore = calculateEvaluation(lateMinutes, 0, totalWorkMinutes);
+    await db.daily_evaluations.upsert(req.user.id, today, {
+      evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: 0,
+      overtime_hours: 0, notes: null
+    });
 
     res.json({ message: `تم تسجيل حضورك بنجاح - الحالة: ${status === 'late' ? 'متأخر' : 'حاضر'}`, status, time: nowISO, distance: Math.round(distance), lateMinutes });
   } catch (err) {
@@ -195,6 +194,7 @@ router.post('/checkout', async (req, res) => {
     }
 
     const overtimeMinutes = calculateOvertimeMinutes(currentTime, workEnd);
+    const earlyMinutes = calculateEarlyLeaveMinutes(currentTime, workEnd);
     await db.attendance.update(req.user.id, today, {
       check_out_time: nowISO, check_out_lat: latitude || null, check_out_lng: longitude || null,
       overtime_minutes: overtimeMinutes
@@ -202,9 +202,9 @@ router.post('/checkout', async (req, res) => {
 
     const lateMinutes = existing.status === 'late' ? calculateLateMinutes(deptSettings.work_start_hour, new Date(existing.check_in_time).toTimeString().slice(0, 5)) : 0;
     const totalWorkMinutes = calculateWorkMinutes(deptSettings.work_start_hour, deptSettings.work_end_hour);
-    const evalScore = calculateEvaluation(lateMinutes, 0, totalWorkMinutes);
+    const evalScore = calculateEvaluation(lateMinutes, earlyMinutes, totalWorkMinutes);
     await db.daily_evaluations.upsert(req.user.id, today, {
-      evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: 0,
+      evaluation_score: evalScore, total_late_minutes: lateMinutes, early_leave_minutes: earlyMinutes,
       overtime_hours: Math.round(overtimeMinutes / 60 * 100) / 100, notes: null
     });
 

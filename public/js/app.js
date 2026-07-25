@@ -1099,7 +1099,7 @@ let pendingPhotoData = null;
 function handleProfilePhoto(event) {
   const file = event.target.files[0];
   if (!file) return;
-  if (file.size > 500000) { showToast('حجم الصورة يجب أن يكون أقل من 500 كيلوبايت', 'error'); return; }
+  if (file.size > 5000000) { showToast('حجم الصورة يجب أن يكون أقل من 5 ميجا بايت', 'error'); return; }
   const reader = new FileReader();
   reader.onload = function(e) {
     pendingPhotoData = e.target.result;
