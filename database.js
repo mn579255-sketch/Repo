@@ -110,7 +110,11 @@ function getDb() {
       },
       async getByUserMonth(userId, month, year) {
         const padded = String(month).padStart(2, '0');
-        const { data } = await supabase.from('attendance').select('*').eq('user_id', userId).like('date', `%-${padded}-${year}%`).order('date', { ascending: false });
+        const startDate = `${year}-${padded}-01`;
+        const endMonth = month === 12 ? 1 : month + 1;
+        const endYear = month === 12 ? year + 1 : year;
+        const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+        const { data } = await supabase.from('attendance').select('*').eq('user_id', userId).gte('date', startDate).lt('date', endDate).order('date', { ascending: false });
         return data || [];
       },
       async getAll() {
@@ -119,7 +123,11 @@ function getDb() {
       },
       async getAllByMonth(month, year) {
         const padded = String(month).padStart(2, '0');
-        const { data } = await supabase.from('attendance').select('*').like('date', `%-${padded}-${year}%`).order('date', { ascending: false });
+        const startDate = `${year}-${padded}-01`;
+        const endMonth = month === 12 ? 1 : month + 1;
+        const endYear = month === 12 ? year + 1 : year;
+        const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+        const { data } = await supabase.from('attendance').select('*').gte('date', startDate).lt('date', endDate).order('date', { ascending: false });
         return data || [];
       },
       async getAllByDate(date) {
@@ -167,7 +175,11 @@ function getDb() {
       },
       async getByUserMonth(userId, month, year) {
         const padded = String(month).padStart(2, '0');
-        const { data } = await supabase.from('daily_evaluations').select('*').eq('user_id', userId).like('date', `%-${padded}-${year}%`).order('date', { ascending: false });
+        const startDate = `${year}-${padded}-01`;
+        const endMonth = month === 12 ? 1 : month + 1;
+        const endYear = month === 12 ? year + 1 : year;
+        const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+        const { data } = await supabase.from('daily_evaluations').select('*').eq('user_id', userId).gte('date', startDate).lt('date', endDate).order('date', { ascending: false });
         return data || [];
       },
       async getSummary(userId) {

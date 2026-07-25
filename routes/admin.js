@@ -182,13 +182,22 @@ router.get('/salary-report', async (req, res) => {
 
     const employees = await db.users.getEmployees();
     const departments = await db.departments.getAll();
+    const settings = await db.work_settings.get();
+    const workStartParts = (settings.work_start_hour || '09:00').split(':');
+    const workEndParts = (settings.work_end_hour || '17:00').split(':');
+    const workStartMin = parseInt(workStartParts[0]) * 60 + parseInt(workStartParts[1]);
+    const workEndMin = parseInt(workEndParts[0]) * 60 + parseInt(workEndParts[1]);
     const deptMap = {};
     departments.forEach(d => { deptMap[d.id] = d.name; });
+
+    const allRequests = await db.requests.getAll();
+    function hasApprovedPermission(userId, date) {
+      return allRequests.some(r => r.user_id === userId && r.status === 'approved' && date >= r.date_from && date <= (r.date_to || r.date_from));
+    }
 
     const report = [];
     for (const emp of employees) {
       const attendance = await db.attendance.getByUserMonth(emp.id, m, y);
-      const evaluations = await db.daily_evaluations.getByUserMonth(emp.id, m, y);
       const salary = emp.salary || 0;
       const hourlyRate = salary / (30 * 8);
       const perMinuteRate = hourlyRate / 60;
@@ -200,23 +209,26 @@ router.get('/salary-report', async (req, res) => {
       let earlyDays = 0;
       let presentDays = 0;
 
-      const allRequests = await db.requests.getAll();
-      function hasApprovedPermission(userId, date) {
-        return allRequests.some(r => r.user_id === userId && r.status === 'approved' && date >= r.date_from && date <= (r.date_to || r.date_from));
-      }
-
       for (const att of attendance) {
         if (hasApprovedPermission(emp.id, att.date)) continue;
         if (att.status === 'late') {
           lateDays++;
-          if (att.check_in_time && att.check_out_time) {
-            const lateMin = calculateLateMinutesFromTimes(att.check_in_time, att.check_out_time, '09:00');
-            totalLateMinutes += lateMin;
+          if (att.check_in_time) {
+            const ci = new Date(att.check_in_time);
+            const ciMin = ci.getHours() * 60 + ci.getMinutes();
+            totalLateMinutes += Math.max(0, ciMin - workStartMin);
           }
         }
         if (att.status === 'present') presentDays++;
         if (att.check_out_time) {
-          const earlyMin = calculateEarlyLeaveFromTimes(att.check_out_time, '17:00');
+          const co = new Date(att.check_out_time);
+          const coMin = co.getHours() * 60 + co.getMinutes();
+          const earlyMin = Math.max(0, workEndMin - coMin);
+          if (earlyMin > 0) { totalEarlyLeave += earlyMin; earlyDays++; }
+          const overtimeMin = Math.max(0, coMin - workEndMin);
+          if (overtimeMin > 0) totalOvertimeHours += overtimeMin / 60;
+        }
+      }
           if (earlyMin > 0) {
             totalEarlyLeave += earlyMin;
             earlyDays++;
@@ -455,6 +467,60 @@ function calculateEarlyLeaveEvaluation(lateMinutes, earlyLeaveMinutes, totalWork
   if (earlyLeaveMinutes > 0) score -= Math.min(earlyLeaveMinutes / totalWorkMinutes, 1) * 30;
   return Math.max(0, Math.round(score * 100) / 100);
 }
+
+// Employee status today (present, on leave, permission, mission)
+router.get('/employee-status', async (req, res) => {
+  const db = getDb();
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const employees = await db.users.getEmployees();
+    const departments = await db.departments.getAll();
+    const deptMap = {};
+    departments.forEach(d => { deptMap[d.id] = d.name; });
+
+    const attendance = await db.attendance.getAllByDate(today);
+    const attMap = {};
+    attendance.forEach(a => { attMap[a.user_id] = a; });
+
+    const allRequests = await db.requests.getAll();
+    const todayApproved = allRequests.filter(r => r.status === 'approved' && today >= r.date_from && today <= (r.date_to || r.date_from));
+    const reqMap = {};
+    todayApproved.forEach(r => { reqMap[r.user_id] = r; });
+
+    const result = employees.map(emp => {
+      const att = attMap[emp.id];
+      const req = reqMap[emp.id];
+      let status = 'absent';
+      let statusText = 'غائب';
+      if (att && att.check_in_time) {
+        if (att.check_out_time) { status = 'left'; statusText = 'انصرف'; }
+        else if (att.status === 'late') { status = 'late'; statusText = 'متأخر'; }
+        else { status = 'present'; statusText = 'حاضر'; }
+      } else if (req) {
+        if (req.type === 'leave') { status = 'leave'; statusText = 'إجازة'; }
+        else if (req.type === 'permission') { status = 'permission'; statusText = 'إذن'; }
+        else if (req.type === 'mission') { status = 'mission'; statusText = 'مأمورية'; }
+      }
+      return {
+        id: emp.id, name: emp.name, department_id: emp.department_id,
+        department_name: deptMap[emp.department_id] || 'غير محدد',
+        status, statusText
+      };
+    });
+
+    const deptStats = {};
+    departments.forEach(d => { deptMap[d.id] = d.name; deptStats[d.name] = { present: 0, late: 0, absent: 0, leave: 0, permission: 0, mission: 0, left: 0, total: 0 }; });
+    result.forEach(r => {
+      if (!deptStats[r.department_name]) deptStats[r.department_name] = { present: 0, late: 0, absent: 0, leave: 0, permission: 0, mission: 0, left: 0, total: 0 };
+      deptStats[r.department_name][r.status] = (deptStats[r.department_name][r.status] || 0) + 1;
+      deptStats[r.department_name].total++;
+    });
+
+    res.json({ employees: result, departmentStats: deptStats, total: employees.length, present: result.filter(r => r.status === 'present' || r.status === 'late' || r.status === 'left').length });
+  } catch (err) {
+    res.status(500).json({ error: 'خطأ في جلب حالة الموظفين' });
+  }
+});
 
 // Admin edit any employee (allow editing name, email, phone, salary, department_id, role)
 router.put('/employees/:id/edit', async (req, res) => {

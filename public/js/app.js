@@ -183,20 +183,37 @@ function showAdminView(view, btn) {
 async function loadAdminDashboard(el) {
   el.innerHTML = `<div class="page-header"><h2>لوحة التحكم</h2><p>نظرة عامة على حضور وانصراف الموظفين</p></div><div class="spinner"></div>`;
   try {
-    const [stats, departments] = await Promise.all([api('/admin/employees-stats'), api('/admin/departments')]);
+    const [stats, departments, empStatus] = await Promise.all([api('/admin/employees-stats'), api('/admin/departments'), api('/admin/employee-status')]);
     el.innerHTML = `
       <div class="page-header"><h2>لوحة التحكم</h2><p>نظرة عامة على حضور وانصراف الموظفين</p></div>
       <div class="stats-grid">
-        <div class="stat-card"><div class="stat-icon blue">${Icons.employees}</div><div class="stat-info"><h4>إجمالي الموظفين</h4><div class="stat-value">${stats.length}</div></div></div>
-        <div class="stat-card"><div class="stat-icon green">${Icons.check}</div><div class="stat-info"><h4>متوسط التقييم</h4><div class="stat-value">${stats.length ? (stats.reduce((a,s) => a + s.avg_evaluation, 0) / stats.length).toFixed(1) : '-'}</div></div></div>
+        <div class="stat-card"><div class="stat-icon blue">${Icons.employees}</div><div class="stat-info"><h4>إجمالي الموظفين</h4><div class="stat-value">${empStatus.total}</div></div></div>
+        <div class="stat-card"><div class="stat-icon green">${Icons.check}</div><div class="stat-info"><h4>الحاضرين اليوم</h4><div class="stat-value">${empStatus.present}</div></div></div>
         <div class="stat-card"><div class="stat-icon yellow">${Icons.clock}</div><div class="stat-info"><h4>إجمالي التأخير (دقيقة)</h4><div class="stat-value">${stats.reduce((a,s) => a + s.total_late_minutes, 0)}</div></div></div>
-        <div class="stat-card"><div class="stat-icon red">${Icons.money}</div><div class="stat-info"><h4>إجمالي الخصومات</h4><div class="stat-value">${fmt(stats.reduce((a,s) => a + (s.salary || 0), 0))} ج.م</div></div></div>
+        <div class="stat-card"><div class="stat-icon red">${Icons.money}</div><div class="stat-info"><h4>إجمالي الرواتب</h4><div class="stat-value">${fmt(stats.reduce((a,s) => a + (s.salary || 0), 0))} ج.م</div></div></div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><h3>${Icons.employees} حالة الموظفين اليوم</h3></div>
+        <div class="table-container"><table><thead><tr><th>القسم</th><th>حاضر</th><th>متأخر</th><th>انصرف</th><th>إجازة</th><th>إذن</th><th>مأمورية</th><th>غائب</th><th>الإجمالي</th></tr></thead><tbody>
+          ${Object.entries(empStatus.departmentStats).map(([dept, s]) => `<tr>
+            <td><strong>${dept}</strong></td>
+            <td><span class="badge badge-present">${s.present || 0}</span></td>
+            <td><span class="badge badge-late">${s.late || 0}</span></td>
+            <td><span class="badge badge-present" style="background:#dbeafe;color:#1d4ed8">${s.left || 0}</span></td>
+            <td><span class="badge badge-pending">${s.leave || 0}</span></td>
+            <td><span class="badge badge-pending">${s.permission || 0}</span></td>
+            <td><span class="badge badge-pending">${s.mission || 0}</span></td>
+            <td><span class="badge badge-absent">${s.absent || 0}</span></td>
+            <td><strong>${s.total}</strong></td>
+          </tr>`).join('')}
+        </tbody></table></div>
       </div>
       ${departments.length ? `
         <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
           ${departments.map(d => {
             const deptEmps = stats.filter(s => s.department_id === d.id);
-            return `<div class="stat-card" style="cursor:pointer" onclick="showAdminView('employees')"><div class="stat-icon blue">${Icons.building}</div><div class="stat-info"><h4>${d.name}</h4><div class="stat-value">${deptEmps.length}</div></div></div>`;
+            const deptStatus = empStatus.departmentStats[d.name] || {};
+            return `<div class="stat-card" style="cursor:pointer" onclick="showAdminView('employees')"><div class="stat-icon blue">${Icons.building}</div><div class="stat-info"><h4>${d.name}</h4><div class="stat-value">${deptEmps.length} موظف - ${deptStatus.present || 0} حاضر</div></div></div>`;
           }).join('')}
         </div>
       ` : ''}

@@ -264,6 +264,12 @@ router.get('/my-salary', async (req, res) => {
     const hourlyRate = salary / (30 * 8);
     const perMinuteRate = hourlyRate / 60;
 
+    const settings = await db.work_settings.get();
+    const workStartParts = (settings.work_start_hour || '09:00').split(':');
+    const workEndParts = (settings.work_end_hour || '17:00').split(':');
+    const startMin = parseInt(workStartParts[0]) * 60 + parseInt(workStartParts[1]);
+    const endMin = parseInt(workEndParts[0]) * 60 + parseInt(workEndParts[1]);
+
     const now = new Date();
     const month = now.getMonth() + 1;
     const year = now.getFullYear();
@@ -286,14 +292,12 @@ router.get('/my-salary', async (req, res) => {
       if (att.check_in_time && att.status === 'late') {
         const ci = new Date(att.check_in_time);
         const ciMin = ci.getHours() * 60 + ci.getMinutes();
-        const startMin = 9 * 60;
         totalLateMinutes += Math.max(0, ciMin - startMin);
         lateDaysCount++;
       }
       if (att.check_out_time) {
         const co = new Date(att.check_out_time);
         const coMin = co.getHours() * 60 + co.getMinutes();
-        const endMin = 17 * 60;
         const early = Math.max(0, endMin - coMin);
         if (early > 0) { totalEarlyLeave += early; earlyDaysCount++; }
         const overtime = Math.max(0, coMin - endMin);
